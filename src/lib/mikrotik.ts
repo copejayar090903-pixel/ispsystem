@@ -70,7 +70,7 @@ function getMikrotikConfig() {
 
   if (!host || !user || password === undefined || Number.isNaN(port)) {
     throw new MikrotikError(
-      "Cannot connect to MikroTik. Check ZeroTier connection.",
+      "Cannot connect to MikroTik. Check VPN connection.",
       "CONFIG_MISSING",
     );
   }
@@ -79,6 +79,7 @@ function getMikrotikConfig() {
 }
 
 function normalizeMikrotikError(error: unknown): MikrotikError {
+  console.error("[MikroTik API Connection Error Details]:", error);
   const message = error instanceof Error ? error.message : String(error);
   const lowerMessage = message.toLowerCase();
 
@@ -101,7 +102,7 @@ function normalizeMikrotikError(error: unknown): MikrotikError {
     lowerMessage.includes("connect")
   ) {
     return new MikrotikError(
-      "Cannot connect to MikroTik. Check ZeroTier connection.",
+      "Cannot connect to MikroTik. Check VPN connection.",
       "CONNECTION_FAILED",
     );
   }

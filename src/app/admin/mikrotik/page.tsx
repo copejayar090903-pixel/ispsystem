@@ -29,10 +29,10 @@ export default function MikrotikPage() {
       const response = await fetch("/api/mikrotik/status", { cache: "no-store" });
       const payload = await response.json();
       setData(payload);
-      if (!response.ok) throw new Error(payload.error ?? "Cannot connect to MikroTik. Check ZeroTier connection.");
+      if (!response.ok) throw new Error(payload.error ?? "Cannot connect to MikroTik. Check VPN connection.");
       toast.success("MikroTik connection test successful.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Cannot connect to MikroTik. Check ZeroTier connection.");
+      toast.error(error instanceof Error ? error.message : "Cannot connect to MikroTik. Check VPN connection.");
     } finally {
       setLoading(false);
     }

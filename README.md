@@ -7,7 +7,7 @@ Tech stack:
 - Next.js (App Router)
 - Supabase (Postgres + Auth + Storage)
 - MikroTik RouterOS API (`node-routeros`)
-- ZeroTier for secure network reachability
+- VPN for secure network reachability
 
 ## Current Implemented Modules
 

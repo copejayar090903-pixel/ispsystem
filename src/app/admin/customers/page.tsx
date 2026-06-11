@@ -625,7 +625,7 @@ export default function CustomersPage() {
           <div>
             <h5 className="font-semibold text-amber-900 dark:text-amber-200">MikroTik Router Offline</h5>
             <p className="mt-1 text-sm leading-relaxed text-amber-800/90 dark:text-amber-300/90">
-              The billing system cannot reach the MikroTik router. Please verify that your ZeroTier client is connected and that the router is online.
+              The billing system cannot reach the MikroTik router. Please verify that your VPN connection is active and that the router is online.
             </p>
             <p className="mt-2 text-xs font-mono text-amber-750 dark:text-amber-400 bg-amber-100/50 dark:bg-amber-950/40 px-2 py-1 rounded w-fit">
               Details: {routerError}

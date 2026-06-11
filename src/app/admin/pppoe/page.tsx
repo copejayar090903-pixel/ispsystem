@@ -60,7 +60,7 @@ export default function PPPoEPage() {
         plansResponse.json(),
       ]);
 
-      if (!accountsResponse.ok) throw new Error(accountsData.error ?? "Cannot connect to MikroTik. Check ZeroTier connection.");
+      if (!accountsResponse.ok) throw new Error(accountsData.error ?? "Cannot connect to MikroTik. Check VPN connection.");
       if (!profilesResponse.ok) throw new Error(profilesData.error ?? "Failed to load MikroTik PPPoE profiles.");
       if (!plansResponse.ok) throw new Error(plansData.error ?? "Failed to load plans.");
 
@@ -73,7 +73,7 @@ export default function PPPoEPage() {
       setConnectionMessage("Connected to MikroTik through the server-side RouterOS API.");
     } catch (error) {
       setConnectionState("error");
-      setConnectionMessage(error instanceof Error ? error.message : "Cannot connect to MikroTik. Check ZeroTier connection.");
+      setConnectionMessage(error instanceof Error ? error.message : "Cannot connect to MikroTik. Check VPN connection.");
       toast.error(error instanceof Error ? error.message : "MikroTik request failed.");
     } finally {
       setLoading(false);

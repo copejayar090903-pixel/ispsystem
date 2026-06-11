@@ -14,11 +14,12 @@ export async function GET() {
 
     return NextResponse.json({ connected: true, identity, resource, sessions, profiles });
   } catch (error) {
+    console.error("[MikroTik Status Route Error]:", error);
     if (error instanceof MikrotikError) {
       const status = error.code === "LOGIN_FAILED" ? 401 : 503;
       return NextResponse.json({ connected: false, error: error.message }, { status });
     }
 
-    return NextResponse.json({ connected: false, error: "Cannot connect to MikroTik. Check ZeroTier connection." }, { status: 500 });
+    return NextResponse.json({ connected: false, error: "Cannot connect to MikroTik. Check VPN connection." }, { status: 500 });
   }
 }
