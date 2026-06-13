@@ -195,23 +195,6 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
       </div>
     </div>
 
-    <div class="pay-card">
-      <div class="pay-hdr bank">&#127968; Bank Transfer &mdash; ${bankName}</div>
-      <div class="pay-body">
-        <div class="pi"><span class="pi-lbl">Bank</span><span class="pi-val">${bankName}</span></div>
-        <div class="pi"><span class="pi-lbl">Account Name</span><span class="pi-val">${bankAcctName}</span></div>
-        <div class="ref">&#128205; Use <strong>${accountNumber}</strong> as the transfer <strong>Reference / Memo</strong></div>
-      </div>
-    </div>
-
-    <div class="pay-card">
-      <div class="pay-hdr cash">&#128181; Cash Payment (Walk-in)</div>
-      <div class="pay-body">
-        <div class="pi"><span class="pi-lbl">Office Address</span><span class="pi-val" style="font-family:inherit;text-align:right;max-width:300px">${officeAddr}</span></div>
-        <div class="ref">&#128205; Bring your Account Number <strong>${accountNumber}</strong> when paying at our office</div>
-      </div>
-    </div>
-
     <div class="divider"></div>
 
     <p class="sec-title">&#127760; Pay Online via Our Portal</p>
@@ -299,15 +282,7 @@ HOW TO PAY  (use Account No. ${accountNumber} as reference)
    Number       : ${mayaNumber}
    Reference    : Enter ${accountNumber} in Remarks / Note
 
-3. BANK TRANSFER (${bankName})
-   Account Name : ${bankAcctName}
-   Reference    : Enter ${accountNumber} as Memo/Reference
-
-4. CASH (Walk-in)
-   Office       : ${officeAddr}
-   Bring your Account Number: ${accountNumber}
-
-5. ONLINE PORTAL (Easiest & Fastest)
+3. ONLINE PORTAL (Easiest & Fastest)
    Visit        : https://isp-system-beta.vercel.app
    Steps:
      1. Go to https://isp-system-beta.vercel.app
