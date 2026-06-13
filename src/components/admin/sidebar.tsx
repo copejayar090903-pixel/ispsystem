@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   BarChart3,
   CreditCard,
@@ -38,14 +39,28 @@ const sidebarItems: SidebarItem[] = [
   { href: "/admin/billing", label: "Billing", icon: FileText, badge: "4 pending" },
   { href: "/admin/payments", label: "Payments", icon: CreditCard, badge: "3 new" },
   { href: "/admin/mikrotik", label: "MikroTik", icon: Router },
+  { href: "/admin/test-connection", label: "Connection Test", icon: Network },
   { href: "/admin/reports", label: "Reports", icon: BarChart3 },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [expanded, setExpanded] = useState<string[]>([]);
   const [activeCount, setActiveCount] = useState<number | null>(null);
+
+  const handleSignOut = async () => {
+    try {
+      await fetch("/api/admin/login", { method: "DELETE" });
+      document.cookie = "admin_logged_in=; Path=/; Max-Age=0; SameSite=Lax";
+      toast.success("Signed out successfully.");
+      router.push("/admin/login");
+      router.refresh();
+    } catch (e) {
+      toast.error("Failed to sign out.");
+    }
+  };
 
   useEffect(() => {
     async function fetchActiveCount() {
@@ -84,7 +99,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             <Network className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-sm font-semibold tracking-tight">ISP Command</p>
+            <p className="text-sm font-semibold tracking-tight">Devcop IT Solution</p>
             <p className="text-xs text-slate-500 dark:text-slate-400">v1.0</p>
           </div>
         </div>
@@ -193,7 +208,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
 
       {/* Footer */}
       <div className="absolute bottom-0 left-0 right-0 border-t border-slate-200 bg-white/50 p-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/50">
-        <Button variant="ghost" className="w-full justify-start text-slate-600 dark:text-slate-400">
+        <Button
+          variant="ghost"
+          className="w-full justify-start text-slate-600 dark:text-slate-400"
+          onClick={() => void handleSignOut()}
+        >
           <LogOut className="h-4 w-4 mr-2" />
           Sign Out
         </Button>

@@ -138,10 +138,10 @@ async function findPPPoESecret(connection: RouterConnection, username: string) {
   if (!account?.[".id"]) {
     throw new MikrotikError("PPPoE account not found.", "NOT_FOUND");
   }
-
   return account;
 }
 
+// Touch to clear compile cache
 export async function connectMikrotik() {
   const config = getMikrotikConfig();
   const connection = new RouterOSAPI({
@@ -150,6 +150,11 @@ export async function connectMikrotik() {
     password: config.password,
     port: config.port,
     timeout: 10,
+  });
+
+  // Attach error listener to prevent uncaught exceptions from background socket events
+  connection.on("error", (error) => {
+    console.error("[RouterOS API Client Connection Error]:", error);
   });
 
   try {
@@ -293,7 +298,61 @@ export async function getSystemResource() {
 export async function getRouterIdentity() {
   return withMikrotik(async (connection) => {
     const [identity] = (await connection.write("/system/identity/print")) as RouterIdentity[];
-
     return identity ?? {};
   });
 }
+
+// ─── Interface Traffic ─────────────────────────────────────────────────────────
+
+export type InterfaceStats = {
+  name: string;
+  type: string;
+  running: string;
+  disabled: string;
+  "rx-byte": string;
+  "tx-byte": string;
+  "rx-packet": string;
+  "tx-packet": string;
+};
+
+/**
+ * Fetch /interface/print with stats — returns cumulative RX/TX byte counters.
+ * Call twice and diff byte values over elapsed time to compute throughput.
+ */
+export async function getInterfaceStats() {
+  return withMikrotik(async (connection) => {
+    const ifaces = (await connection.write("/interface/print", [
+      "=.proplist=name,type,running,disabled,rx-byte,tx-byte,rx-packet,tx-packet",
+    ])) as InterfaceStats[];
+    return ifaces ?? [];
+  });
+}
+
+// ─── Update PPPoE Secret Fields ────────────────────────────────────────────────
+
+export interface PPPoESecretUpdate {
+  password?: string;
+  comment?:  string;
+  newName?:  string;
+  profile?:  string;
+}
+
+/**
+ * Update editable fields on a PPPoE secret (password, comment, name, profile).
+ */
+export async function updatePPPoESecretFields(username: string, updates: PPPoESecretUpdate) {
+  return withMikrotik(async (connection) => {
+    const account = await findPPPoESecret(connection, username);
+    const args: string[] = [`=.id=${account[".id"]}`];
+
+    if (updates.newName  !== undefined && updates.newName !== username) args.push(`=name=${updates.newName}`);
+    if (updates.password !== undefined && updates.password !== "") args.push(`=password=${updates.password}`);
+    if (updates.comment  !== undefined) args.push(`=comment=${updates.comment}`);
+    if (updates.profile  !== undefined) args.push(`=profile=${updates.profile}`);
+
+    if (args.length > 1) {
+      await connection.write("/ppp/secret/set", args);
+    }
+    return { ok: true, username: updates.newName ?? username };
+  });
+}

@@ -1,7 +1,8 @@
 "use client";
 
-import { Bell, Menu, Search } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { Bell, Menu, Search, Loader2 } from "lucide-react";
+import { useState, useEffect, type ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/src/lib/utils";
 import { Button } from "@/src/components/ui/button";
 import { Input } from "@/src/components/ui/input";
@@ -10,6 +11,46 @@ import { Sidebar } from "@/src/components/admin/sidebar";
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(true);
+  const pathname = usePathname();
+  const router = useRouter();
+  const [authorized, setAuthorized] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (pathname === "/admin/login") {
+      setLoading(false);
+      return;
+    }
+
+    const checkAuth = () => {
+      const hasCookie = document.cookie.includes("admin_logged_in=true");
+      if (!hasCookie) {
+        router.replace("/admin/login");
+      } else {
+        setAuthorized(true);
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
+  }, [pathname, router]);
+
+  // If path is login page, just show children directly without layout
+  if (pathname === "/admin/login") {
+    return <>{children}</>;
+  }
+
+  // While checking status or when not authorized, show a elegant fullscreen loader
+  if (loading || !authorized) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <p className="mt-4 text-xs font-semibold text-slate-500 uppercase tracking-widest animate-pulse">
+          Authenticating access...
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-50">

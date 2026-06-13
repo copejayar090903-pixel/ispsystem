@@ -5,9 +5,10 @@ export const runtime = "nodejs";
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const { id } = await params;
     const { reason, adminId } = (await request.json()) as { reason?: string; adminId?: string };
 
     const supabase = createSupabaseServerClient();
@@ -20,7 +21,7 @@ export async function POST(
         reviewed_at: new Date().toISOString(),
         rejection_reason: reason,
       })
-      .eq("id", params.id);
+      .eq("id", id);
 
     if (error) throw error;
 

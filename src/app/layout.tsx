@@ -15,7 +15,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "ISP Billing System",
+  title: "Devcop IT Solution",
   description: "ISP billing admin powered by Next.js, Supabase, and MikroTik RouterOS.",
 };
 

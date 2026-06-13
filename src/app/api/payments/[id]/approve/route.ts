@@ -4,9 +4,15 @@ import { enablePPPoE } from "@/src/lib/mikrotik";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
-    const { paymentId, adminId } = (await request.json()) as { paymentId?: string; adminId?: string };
+    const { id } = await params;
+    const body = await request.json().catch(() => ({}));
+    const paymentId = id || body.paymentId;
+    const adminId = body.adminId;
 
     if (!paymentId) {
       return NextResponse.json({ error: "Payment ID is required." }, { status: 400 });

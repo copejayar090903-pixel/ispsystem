@@ -18,7 +18,7 @@ export function SidebarPreview() {
             <span className="text-xs font-bold">ISP</span>
           </div>
           <div>
-            <p className="text-sm font-semibold">ISP Command</p>
+            <p className="text-sm font-semibold">Devcop IT Solution</p>
             <p className="text-xs text-slate-500">v1.0</p>
           </div>
         </div>

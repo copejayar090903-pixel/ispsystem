@@ -10,6 +10,11 @@ export async function GET() {
     timeout: 10,
   });
 
+  // Attach error listener to prevent uncaught exceptions from background socket events
+  conn.on("error", (error) => {
+    console.error("[RouterOS API Test Route Error]:", error);
+  });
+
   try {
     await conn.connect();
 
