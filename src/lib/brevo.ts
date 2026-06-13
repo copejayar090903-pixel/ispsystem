@@ -59,10 +59,10 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
     billingYear,
   } = data;
 
-  const gcashNumber  = process.env.PAYMENT_GCASH_NUMBER         ?? "N/A";
-  const gcashName    = process.env.PAYMENT_GCASH_NAME           ?? "ISP";
-  const mayaNumber   = process.env.PAYMENT_MAYA_NUMBER          ?? "N/A";
-  const mayaName     = process.env.PAYMENT_MAYA_NAME            ?? "ISP";
+  const gcashNumber  = process.env.PAYMENT_GCASH_NUMBER         ?? "09759209976";
+  const gcashName    = process.env.PAYMENT_GCASH_NAME           ?? "Jay-ar Cope";
+  const mayaNumber   = process.env.PAYMENT_MAYA_NUMBER          ?? "09759209976";
+  const mayaName     = process.env.PAYMENT_MAYA_NAME            ?? "Jay-ar Cope";
   const bankName     = process.env.PAYMENT_BANK_NAME            ?? "N/A";
   const bankAcctNum  = process.env.PAYMENT_BANK_ACCOUNT_NUMBER  ?? "N/A";
   const bankAcctName = process.env.PAYMENT_BANK_ACCOUNT_NAME    ?? "ISP";
@@ -199,7 +199,6 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
       <div class="pay-hdr bank">&#127968; Bank Transfer &mdash; ${bankName}</div>
       <div class="pay-body">
         <div class="pi"><span class="pi-lbl">Bank</span><span class="pi-val">${bankName}</span></div>
-        <div class="pi"><span class="pi-lbl">Account Number</span><span class="pi-val">${bankAcctNum}</span></div>
         <div class="pi"><span class="pi-lbl">Account Name</span><span class="pi-val">${bankAcctName}</span></div>
         <div class="ref">&#128205; Use <strong>${accountNumber}</strong> as the transfer <strong>Reference / Memo</strong></div>
       </div>
@@ -215,9 +214,29 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
 
     <div class="divider"></div>
 
+    <p class="sec-title">&#127760; Pay Online via Our Portal</p>
+    <div class="pay-card" style="border-color:#bfdbfe">
+      <div class="pay-hdr" style="background:#eff6ff;color:#1d4ed8;border-bottom:1px solid #bfdbfe">&#128187; Online Payment Portal — Fastest & Easiest</div>
+      <div class="pay-body">
+        <p style="font-size:13px;color:#334155;margin-bottom:12px;line-height:1.7">You can submit your payment verification directly through our online portal. Here&rsquo;s how:</p>
+        <ol style="font-size:13px;color:#475569;line-height:2;padding-left:18px;margin:0">
+          <li>Visit <a href="https://isp-system-beta.vercel.app" style="color:#2563eb;font-weight:700;text-decoration:none">isp-system-beta.vercel.app</a></li>
+          <li>Enter your <strong>Account Number: ${accountNumber}</strong> in the search box</li>
+          <li>Click <strong>Search</strong> to load your billing statement</li>
+          <li>Select your <strong>Payment Method</strong> (GCash, Maya, Bank Transfer, or Cash)</li>
+          <li>Enter your <strong>Reference Number</strong> and <strong>Amount Paid</strong></li>
+          <li>Click <strong>Submit Payment Verification</strong></li>
+        </ol>
+        <div class="ref" style="margin-top:12px">&#9989; Your connection will be re-enabled automatically once your payment is verified by our team.</div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
     <p style="font-size:13px;color:#475569;line-height:1.8">
-      After payment, please submit your <strong>proof of payment</strong> through the customer portal or contact support.
-      This helps us update your account status promptly.
+      You can also submit your payment through our online portal at
+      <a href="https://isp-system-beta.vercel.app" style="color:#2563eb;font-weight:700">isp-system-beta.vercel.app</a>
+      or contact support for assistance.
     </p>
   </div>
 
@@ -243,9 +262,9 @@ function buildReminderEmailText(data: BillingReminderPayload): string {
     amountDue, billingPeriodStart, billingPeriodEnd, dueDate, billingMonth, billingYear,
   } = data;
 
-  const gcashNumber  = process.env.PAYMENT_GCASH_NUMBER        ?? "N/A";
-  const gcashName    = process.env.PAYMENT_GCASH_NAME          ?? "ISP";
-  const mayaNumber   = process.env.PAYMENT_MAYA_NUMBER         ?? "N/A";
+  const gcashNumber  = process.env.PAYMENT_GCASH_NUMBER        ?? "09759209976";
+  const gcashName    = process.env.PAYMENT_GCASH_NAME          ?? "Jay-ar Cope";
+  const mayaNumber   = process.env.PAYMENT_MAYA_NUMBER         ?? "09759209976";
   const bankName     = process.env.PAYMENT_BANK_NAME           ?? "N/A";
   const bankAcctNum  = process.env.PAYMENT_BANK_ACCOUNT_NUMBER ?? "N/A";
   const bankAcctName = process.env.PAYMENT_BANK_ACCOUNT_NAME   ?? "ISP";
@@ -281,7 +300,6 @@ HOW TO PAY  (use Account No. ${accountNumber} as reference)
    Reference    : Enter ${accountNumber} in Remarks / Note
 
 3. BANK TRANSFER (${bankName})
-   Account No.  : ${bankAcctNum}
    Account Name : ${bankAcctName}
    Reference    : Enter ${accountNumber} as Memo/Reference
 
@@ -289,12 +307,22 @@ HOW TO PAY  (use Account No. ${accountNumber} as reference)
    Office       : ${officeAddr}
    Bring your Account Number: ${accountNumber}
 
+5. ONLINE PORTAL (Easiest & Fastest)
+   Visit        : https://isp-system-beta.vercel.app
+   Steps:
+     1. Go to https://isp-system-beta.vercel.app
+     2. Enter your Account Number: ${accountNumber}
+     3. Click "Search" to load your billing statement
+     4. Select your Payment Method
+     5. Enter your Reference Number and Amount Paid
+     6. Click "Submit Payment Verification"
+   Your connection will be re-enabled automatically once verified.
+
 SUPPORT
 ═══════════════════════════════════
 Email : ${supportEmail}
 Phone : ${supportPhone}
 
-After paying, submit your proof of payment through the customer portal or contact support.
 This is an automated billing reminder. Please do not reply to this email.`;
 }
 
