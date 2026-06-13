@@ -70,7 +70,7 @@ export default function Home() {
   const [paymentMethod, setPaymentMethod] = useState("gcash");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [amountPaid, setAmountPaid] = useState("");
-  const [proofUrl, setProofUrl] = useState("");
+
 
   // FAQ state
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
@@ -125,7 +125,7 @@ export default function Home() {
           method: paymentMethod,
           referenceNumber: referenceNumber || null,
           amountPaid: Number(amountPaid),
-          proofUrl: proofUrl || "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=150",
+          proofUrl: null,
         }),
       });
       const data = await res.json();
@@ -136,7 +136,6 @@ export default function Home() {
       
       setReferenceNumber("");
       setAmountPaid("");
-      setProofUrl("");
 
       await handleLookup();
     } catch (err: any) {
@@ -311,7 +310,7 @@ export default function Home() {
                           <div className="bg-slate-50/50 dark:bg-slate-900/20 border border-slate-100/60 dark:border-slate-900/80 p-3.5 rounded-2xl">
                             <span className="text-slate-400 block mb-1">Invoice Due Date</span>
                             <span className="font-bold text-rose-500 block">{currentBill.due_date}</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5 block">Cycle: {currentBill.billing_period_start} to {currentBill.billing_period_end}</span>
+                            <span className="text-[10px] text-slate-400 mt-0.5 block">Cycle: {new Date(currentBill.billing_period_start).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "2-digit" })} to {new Date(currentBill.billing_period_end).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "2-digit" })}</span>
                           </div>
                           <div className="bg-slate-50/50 dark:bg-slate-900/20 border border-slate-100/60 dark:border-slate-900/80 p-3.5 rounded-2xl">
                             <span className="text-slate-400 block mb-1">Total Outstanding</span>
@@ -375,15 +374,7 @@ export default function Home() {
                               onChange={(e) => setAmountPaid(e.target.value)}
                             />
                           </div>
-                          <div className="space-y-1.5 sm:col-span-2">
-                            <label className="font-semibold text-slate-500">Proof of Payment attachment URL (optional)</label>
-                            <Input
-                              placeholder="e.g. Paste reference image link"
-                              className="h-9 rounded-lg border-slate-200 dark:border-slate-850 focus-visible:ring-blue-500"
-                              value={proofUrl}
-                              onChange={(e) => setProofUrl(e.target.value)}
-                            />
-                          </div>
+
                         </div>
 
                         <Button onClick={() => void handleSubmitPayment()} disabled={submitting} className="w-full h-11 rounded-xl shadow-md">

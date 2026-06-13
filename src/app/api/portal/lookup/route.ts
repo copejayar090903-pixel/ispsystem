@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     const supabase = createSupabaseServerClient();
     const { data: customer, error: customerError } = await supabase
       .from("customers")
-      .select("*, plans(monthly_fee)")
+      .select("*, plans(id, plan_name, speed, monthly_fee)")
       .eq("account_number", accountNumber)
       .single();
 
