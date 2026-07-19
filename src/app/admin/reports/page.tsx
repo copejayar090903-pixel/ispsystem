@@ -57,6 +57,8 @@ type ReportData = {
     amount_due: number;
     paid_at: string | null;
     due_date: string | null;
+    method: string;
+    amount_paid: number;
   }[];
 };
 
@@ -528,33 +530,42 @@ export default function ReportsPage() {
                   <th className="py-2.5 px-2 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Customer</th>
                   <th className="py-2.5 px-2 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Account #</th>
                   <th className="py-2.5 px-2 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Billing Period</th>
-                  <th className="py-2.5 px-2 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Due Date</th>
                   <th className="py-2.5 px-2 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Paid At</th>
-                  <th className="py-2.5 px-2 text-right font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Amount</th>
+                  <th className="py-2.5 px-2 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Method</th>
+                  <th className="py-2.5 px-2 text-right font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Amount Paid</th>
                 </tr>
               </thead>
               <tbody>
                 {data.recentPaidBills.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400">No paid bills found.</td>
+                    <td colSpan={6} className="py-8 text-center text-slate-400">No paid bills found. Click "Paid" on a customer to record a payment.</td>
                   </tr>
                 ) : data.recentPaidBills.map((bill, idx) => (
                   <tr key={bill.id} className={`border-b border-slate-50 dark:border-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-900/20 transition-colors ${idx % 2 === 0 ? "" : "bg-slate-50/30 dark:bg-slate-900/10"}`}>
                     <td className="py-2.5 px-2 font-semibold text-slate-900 dark:text-white">{bill.customer}</td>
                     <td className="py-2.5 px-2 font-mono text-slate-500 dark:text-slate-400">{bill.account_number}</td>
                     <td className="py-2.5 px-2 text-slate-600 dark:text-slate-400">{bill.month}</td>
-                    <td className="py-2.5 px-2 text-slate-500 dark:text-slate-400">
-                      {bill.due_date ? new Date(bill.due_date).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" }) : "—"}
-                    </td>
                     <td className="py-2.5 px-2">
                       {bill.paid_at ? (
                         <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                          {new Date(bill.paid_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" })}
+                          {new Date(bill.paid_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                         </span>
                       ) : "—"}
                     </td>
+                    <td className="py-2.5 px-2">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase
+                        ${
+                          bill.method === "gcash" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300" :
+                          bill.method === "maya" ? "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300" :
+                          bill.method === "bank_transfer" ? "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300" :
+                          "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                        }`}
+                      >
+                        {bill.method === "bank_transfer" ? "Bank" : bill.method || "Cash"}
+                      </span>
+                    </td>
                     <td className="py-2.5 px-2 text-right font-black text-emerald-600 dark:text-emerald-400">
-                      {formatCurrency(bill.amount_due)}
+                      {formatCurrency(bill.amount_paid ?? bill.amount_due)}
                     </td>
                   </tr>
                 ))}

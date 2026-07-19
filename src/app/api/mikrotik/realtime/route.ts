@@ -70,12 +70,26 @@ export async function GET() {
       },
       sessions: {
         active: sessions.length,
-        list: sessions.slice(0, 50).map((s) => ({
-          user:     s.name ?? s.user ?? "unknown",
-          address:  s.address   ?? "—",
-          uptime:   s.uptime    ?? "—",
-          callerId: s["caller-id"] ?? "—",
-        })),
+        list: sessions.slice(0, 100).map((s) => {
+          const username = s.name ?? s.user ?? "unknown";
+          // MikroTik creates a virtual interface named <pppoe-USERNAME> for each active session
+          // This is where the real per-client byte counters live
+          const pppoeIface = ifaces.find(
+            (iface) =>
+              iface.name === `<pppoe-${username}>` ||
+              iface.name === `pppoe-${username}` ||
+              iface.name.toLowerCase() === `<pppoe-${username.toLowerCase()}>`
+          );
+          return {
+            user:     username,
+            address:  s.address    ?? "—",
+            uptime:   s.uptime     ?? "—",
+            callerId: s["caller-id"] ?? "—",
+            // Use interface counters — much more reliable than /ppp/active bytes fields
+            bytesIn:  pppoeIface ? Number(pppoeIface["rx-byte"] ?? 0) : 0,
+            bytesOut: pppoeIface ? Number(pppoeIface["tx-byte"] ?? 0) : 0,
+          };
+        }),
       },
       system: {
         cpuLoad,

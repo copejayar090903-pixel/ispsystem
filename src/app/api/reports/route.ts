@@ -209,16 +209,24 @@ export async function GET() {
     // ─── Recent Paid Bills (detailed) ─────────────────────────────────────
     const recentPaidBills = bills
       .filter((b: any) => b.status === "paid")
-      .slice(0, 15)
-      .map((b: any) => ({
-        id: b.id,
-        customer: (b.customers as any)?.full_name || "Unknown",
-        account_number: (b.customers as any)?.account_number || "-",
-        month: `${fullMonthNames[(b.billing_month || 1) - 1]} ${b.billing_year}`,
-        amount_due: b.amount_due,
-        paid_at: b.paid_at,
-        due_date: b.due_date,
-      }));
+      .slice(0, 30)
+      .map((b: any) => {
+        // Find a matching verified payment for this bill
+        const matchingPayment = payments.find(
+          (p: any) => p.billing_id === b.id && p.status === "verified"
+        );
+        return {
+          id: b.id,
+          customer: (b.customers as any)?.full_name || "Unknown",
+          account_number: (b.customers as any)?.account_number || "-",
+          month: `${fullMonthNames[(b.billing_month || 1) - 1]} ${b.billing_year}`,
+          amount_due: b.amount_due,
+          paid_at: b.paid_at,
+          due_date: b.due_date,
+          method: matchingPayment?.method || "cash",
+          amount_paid: matchingPayment?.amount_paid || b.amount_due,
+        };
+      });
 
     return NextResponse.json({
       summary,

@@ -88,7 +88,7 @@ type MikrotikRealtimeData = {
   };
   sessions?: {
     active: number;
-    list: Array<{ user: string; address: string; uptime: string; callerId: string }>;
+    list: Array<{ user: string; address: string; uptime: string; callerId: string; bytesIn: number; bytesOut: number }>;
   };
   system?: {
     cpuLoad: number;
@@ -108,6 +108,15 @@ type MikrotikRealtimeData = {
 
 const POLL_INTERVAL_MS   = 3_000;  // 3 second realtime
 const MAX_HISTORY_POINTS = 60;     // last 60 points (~3 min window)
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+}
 
 // ─── Dashboard Page ───────────────────────────────────────────────────────────
 
@@ -715,59 +724,111 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* Realtime Charts */}
-            {mikrotik?.ok && (mikrotik.sessions?.list.length ?? 0) > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                        <Users className="h-4 w-4 text-emerald-500" />
-                        Currently Online — PPPoE Sessions
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        {mikrotik.sessions!.active} active session{mikrotik.sessions!.active !== 1 ? "s" : ""} · showing up to 10
-                      </CardDescription>
+            {/* Per-Client Traffic Table */}
+            {mikrotik?.ok && (mikrotik.sessions?.list.length ?? 0) > 0 && (() => {
+              const sessions = [...(mikrotik.sessions?.list ?? [])]
+                .sort((a, b) => (b.bytesIn + b.bytesOut) - (a.bytesIn + a.bytesOut));
+              const maxTotal = Math.max(...sessions.map(s => s.bytesIn + s.bytesOut), 1);
+
+              return (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                          <Activity className="h-4 w-4 text-blue-500" />
+                          Per-Client Traffic Usage
+                        </CardTitle>
+                        <CardDescription className="text-xs">
+                          {mikrotik.sessions!.active} active PPPoE clients · cumulative session data · sorted by usage
+                        </CardDescription>
+                      </div>
+                      <Badge variant="success" className="gap-1 text-[11px]">
+                        <Wifi className="h-3 w-3" /> {mikrotik.sessions!.active} online
+                      </Badge>
                     </div>
-                    <Badge variant="success" className="gap-1 text-[11px]">
-                      <Wifi className="h-3 w-3" /> {mikrotik.sessions!.active} online
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-slate-100 dark:border-slate-800">
-                          <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px]">Username</th>
-                          <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px]">IP Address</th>
-                          <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px]">Uptime</th>
-                          <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px]">Caller ID (MAC)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {mikrotik.sessions!.list.slice(0, 10).map((session, i) => (
-                          <tr
-                            key={`${session.user}-${i}`}
-                            className="border-b border-slate-50 dark:border-slate-900 hover:bg-slate-50 dark:hover:bg-slate-900/30 transition-colors"
-                          >
-                            <td className="py-2.5 px-2">
-                              <span className="flex items-center gap-1.5">
-                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
-                                <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{session.user}</span>
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-2 font-mono text-slate-500">{session.address}</td>
-                            <td className="py-2.5 px-2 text-slate-500">{session.uptime}</td>
-                            <td className="py-2.5 px-2 font-mono text-slate-400">{session.callerId}</td>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-100 dark:border-slate-800">
+                            <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px]">#</th>
+                            <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px]">Username</th>
+                            <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px] hidden sm:table-cell">IP Address</th>
+                            <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px] hidden md:table-cell">Uptime</th>
+                            <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px]">
+                              <span className="flex items-center gap-1"><ArrowDown className="h-3 w-3 text-emerald-500" />Download (RX)</span>
+                            </th>
+                            <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px]">
+                              <span className="flex items-center gap-1"><ArrowUp className="h-3 w-3 text-orange-500" />Upload (TX)</span>
+                            </th>
+                            <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px] hidden lg:table-cell">Usage Bar</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+                        </thead>
+                        <tbody>
+                          {sessions.map((session, i) => {
+                            const total = session.bytesIn + session.bytesOut;
+                            const pct = Math.round((total / maxTotal) * 100);
+                            const rxPct = total > 0 ? Math.round((session.bytesIn / total) * 100) : 0;
+                            return (
+                              <tr
+                                key={`${session.user}-${i}`}
+                                className="border-b border-slate-50 dark:border-slate-900 hover:bg-slate-50 dark:hover:bg-slate-900/30 transition-colors"
+                              >
+                                <td className="py-2.5 px-2 text-slate-400 font-mono">{i + 1}</td>
+                                <td className="py-2.5 px-2">
+                                  <span className="flex items-center gap-1.5">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 flex-shrink-0 animate-pulse" />
+                                    <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{session.user}</span>
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-2 font-mono text-slate-500 hidden sm:table-cell">{session.address}</td>
+                                <td className="py-2.5 px-2 text-slate-500 hidden md:table-cell">{session.uptime}</td>
+                                <td className="py-2.5 px-2">
+                                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                                    {formatBytes(session.bytesIn)}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-2">
+                                  <span className="font-semibold text-orange-500 dark:text-orange-400">
+                                    {formatBytes(session.bytesOut)}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-2 hidden lg:table-cell min-w-[120px]">
+                                  <div className="relative h-3 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                                    <div
+                                      className="absolute inset-y-0 left-0 rounded-full bg-emerald-400"
+                                      style={{ width: `${rxPct}%`, transition: "width 0.5s ease" }}
+                                    />
+                                    <div
+                                      className="absolute inset-y-0 rounded-full bg-orange-400"
+                                      style={{ left: `${rxPct}%`, width: `${100 - rxPct}%`, transition: "width 0.5s ease" }}
+                                    />
+                                  </div>
+                                  <div className="text-[9px] text-slate-400 mt-0.5 text-center">{formatBytes(total)} total</div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex items-center gap-4 mt-3 px-1">
+                      <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                        <span className="h-2.5 w-5 rounded-full bg-emerald-400 inline-block" />
+                        ↓ Download (RX)
+                      </span>
+                      <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                        <span className="h-2.5 w-5 rounded-full bg-orange-400 inline-block" />
+                        ↑ Upload (TX)
+                      </span>
+                      <span className="ml-auto text-[10px] text-slate-400">Sorted by total usage · refreshes every 3s</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })()}
           </section>
 
           {/* ── Billing Charts Section ───────────────────────────────── */}

@@ -50,12 +50,9 @@ export async function POST() {
       const dateSource = customer.due_date || customer.installation_date;
       if (dateSource) {
         try {
-          const parts = dateSource.split("-");
-          if (parts.length === 3) {
-            const day = Number(parts[2]);
-            if (!isNaN(day)) {
-              dueDay = day;
-            }
+          const dateObj = new Date(dateSource);
+          if (!isNaN(dateObj.getTime())) {
+            dueDay = dateObj.getDate();
           }
         } catch (e) {
           console.error("Failed to parse customer date:", dateSource, e);

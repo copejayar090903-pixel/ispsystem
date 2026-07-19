@@ -1,11 +1,18 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/src/lib/supabase";
 import { getActivePPPoESessions } from "@/src/lib/mikrotik";
+import { cache } from "@/src/lib/redis";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
+    const cacheKey = "dashboard:stats";
+    const cachedData = await cache.get<any>(cacheKey);
+    if (cachedData) {
+      return NextResponse.json(cachedData);
+    }
+
     const supabase = createSupabaseServerClient();
 
     // 1. Fetch active PPPoE sessions from Router (with safe fallback)
@@ -188,14 +195,18 @@ export async function GET() {
       offlinePppoe: offlineSessionsCount,
     };
 
-    return NextResponse.json({
+    const responseBody = {
       stats,
       revenueData,
       paidUnpaidData,
       growthData,
       planDistributionData,
       activityItems: activityItems.slice(0, 4),
-    });
+    };
+
+    await cache.set(cacheKey, responseBody, 60);
+
+    return NextResponse.json(responseBody);
   } catch (error) {
     console.error("[GET Dashboard Stats Error]:", error);
     return NextResponse.json(

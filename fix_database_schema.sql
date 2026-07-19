@@ -13,7 +13,7 @@ CREATE TABLE public.customers (
   contact_number text,
   email text,
   installation_date date,
-  due_date date,
+  due_date timestamptz,
   pppoe_username text UNIQUE NOT NULL,
   plan_id uuid REFERENCES public.plans(id) ON UPDATE CASCADE,
   status text NOT NULL DEFAULT 'active',

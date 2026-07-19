@@ -11,6 +11,7 @@ import { DataTable } from "@/src/components/admin/data-table";
 import { PageHeader } from "@/src/components/admin/page-header";
 import { StatusBadge } from "@/src/components/admin/status-badge";
 import { Button } from "@/src/components/ui/button";
+import { Badge } from "@/src/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/src/components/ui/card";
 import { Input, Textarea } from "@/src/components/ui/input";
 import { Select } from "@/src/components/ui/select";
@@ -58,6 +59,7 @@ type Customer = {
   uptime?: string;
   ipAddress?: string;
   callerId?: string;
+  paidThisMonth?: boolean;
 };
 
 const customerSchema = z.object({
@@ -78,20 +80,59 @@ const calculateRemainingDays = (dueDateStr: string) => {
   if (!dueDateStr || dueDateStr === "-") return "-";
   const dueDate = new Date(dueDateStr);
   const today = new Date();
-  dueDate.setHours(0, 0, 0, 0);
-  today.setHours(0, 0, 0, 0);
   
   const diffTime = dueDate.getTime() - today.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  
-  if (diffDays < 0) {
-    return `${Math.abs(diffDays)} days overdue`;
-  } else if (diffDays === 0) {
-    return "Today";
-  } else {
-    return `${diffDays} days left`;
+  if (diffTime < 0) {
+    const diffDays = Math.ceil(Math.abs(diffTime) / (1000 * 60 * 60 * 24));
+    return `${diffDays} days overdue`;
   }
+  
+  const diffHours = Math.ceil(diffTime / (1000 * 60 * 60));
+  if (diffHours < 24) {
+    if (diffHours <= 1) return "1 hour left";
+    return `${diffHours} hours left`;
+  }
+  
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return `${diffDays} days left`;
 };
+
+function formatToDatetimeLocal(dateStr: string | null | undefined): string {
+  if (!dateStr || dateStr === "-") {
+    const d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    return formatLocalDateToDatetimeLocal(d);
+  }
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) {
+    const fallback = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    return formatLocalDateToDatetimeLocal(fallback);
+  }
+  return formatLocalDateToDatetimeLocal(d);
+}
+
+function formatLocalDateToDatetimeLocal(date: Date): string {
+  const pad = (num: number) => String(num).padStart(2, "0");
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function formatToReadableDatetime(dateStr: string | null | undefined): string {
+  if (!dateStr || dateStr === "-") return "-";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  
+  const pad = (num: number) => String(num).padStart(2, "0");
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
 
 export default function CustomersPage() {
   const [secrets, setSecrets] = useState<PPPoESecret[]>([]);
@@ -212,7 +253,7 @@ export default function CustomersPage() {
                   : "active",
               address: secret?.comment || null,
               installation_date: new Date().toISOString().split("T")[0],
-              due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+              due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
             };
 
             const res = await fetch("/api/customers", {
@@ -300,8 +341,6 @@ export default function CustomersPage() {
         // Check if due date is today or past
         const dueDate = new Date(customer.due_date);
         const today = new Date();
-        dueDate.setHours(0, 0, 0, 0);
-        today.setHours(0, 0, 0, 0);
 
         return dueDate.getTime() <= today.getTime();
       });
@@ -395,6 +434,7 @@ export default function CustomersPage() {
           uptime: "Router Offline",
           ipAddress: "-",
           callerId: "-",
+          paidThisMonth: customer.paid_this_month || false,
         };
       });
     }
@@ -423,6 +463,7 @@ export default function CustomersPage() {
         uptime: session.uptime || "-",
         ipAddress: session.address || "-",
         callerId: session["caller-id"] || "-",
+        paidThisMonth: customer?.paid_this_month || false,
       };
     });
   }, [activeSessions, secrets, dbCustomers]);
@@ -498,7 +539,7 @@ export default function CustomersPage() {
       plan: plans.find((p) => p.plan_name === customer.plan || p.speed === customer.plan)?.plan_name || "",
       address: customer.address === "-" ? "" : customer.address,
       installationDate: customer.installationDate || new Date().toISOString().split("T")[0],
-      dueDate: customer.dueDate === "-" ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0] : customer.dueDate,
+      dueDate: formatToDatetimeLocal(customer.dueDate),
     });
     setModalOpen(true);
   }
@@ -523,7 +564,7 @@ export default function CustomersPage() {
         status: "active",
         address: values.address || null,
         installation_date: values.installationDate,
-        due_date: values.dueDate,
+        due_date: values.dueDate ? new Date(values.dueDate).toISOString() : null,
       };
 
       const response = await fetch("/api/customers", {
@@ -574,6 +615,13 @@ export default function CustomersPage() {
          id: "remainingDays",
          header: "Remaining Days",
          cell: ({ row }) => {
+           if (row.original.paidThisMonth) {
+             return (
+               <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100/80 dark:bg-emerald-950/40 dark:text-emerald-300 border-none">
+                 ✓ Paid
+               </Badge>
+             );
+           }
            const days = calculateRemainingDays(row.original.dueDate);
            const isOverdue = days.includes("overdue");
            return (
@@ -588,18 +636,32 @@ export default function CustomersPage() {
         id: "actions",
         header: "Actions",
         cell: ({ row }) => (
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-1.5 flex-wrap">
             <Button variant="ghost" size="sm" onClick={() => { setSelectedCustomer(row.original); setIsMobileDetailOpen(true); }}>
-              <Eye className="h-4 w-4" /> View
+              <Eye className="mr-1 h-4 w-4" /> Profile
             </Button>
             <Button variant="outline" size="sm" onClick={() => handleEdit(row.original)}>
               Edit
+            </Button>
+            <Button
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={actionBusy === row.original.pppoeUsername || row.original.paidThisMonth}
+              onClick={() => void handlePayAction(row.original.pppoeUsername)}
+              title={row.original.paidThisMonth ? "Already paid this month" : "Mark as paid"}
+            >
+              {actionBusy === row.original.pppoeUsername ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <CreditCard className="h-3.5 w-3.5" />
+              )}
+              {row.original.paidThisMonth ? "✓ Paid" : "Paid"}
             </Button>
           </div>
         ),
       },
     ],
-    [activeCustomers, plans],
+    [activeCustomers, plans, actionBusy],
   );
 
   return (
@@ -612,7 +674,7 @@ export default function CustomersPage() {
             <Button variant="outline" onClick={() => void loadData()} disabled={loading}>
               Refresh Connections
             </Button>
-            <Button onClick={() => { setEditingCustomer(null); form.reset({ fullName: "", contactNumber: "", email: "", pppoeUsername: "", pppoePassword: "", plan: "", address: "", installationDate: new Date().toISOString().split("T")[0], dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0] }); setModalOpen(true); }}>
+            <Button onClick={() => { setEditingCustomer(null); form.reset({ fullName: "", contactNumber: "", email: "", pppoeUsername: "", pppoePassword: "", plan: "", address: "", installationDate: new Date().toISOString().split("T")[0], dueDate: formatToDatetimeLocal(null) }); setModalOpen(true); }}>
               <Plus className="h-4 w-4" /> Add Customer
             </Button>
           </>
@@ -639,7 +701,7 @@ export default function CustomersPage() {
           <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
         </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
+        <div className="w-full">
           <Card>
             <CardHeader className="gap-4 md:flex-row md:items-center md:justify-between">
               <div>
@@ -651,82 +713,11 @@ export default function CustomersPage() {
               <DataTable columns={columns} data={activeCustomers} searchPlaceholder="Search active connections..." />
             </CardContent>
           </Card>
-
-          <Card className="h-fit hidden lg:block">
-            <CardHeader className="flex-row items-start justify-between gap-4">
-              <div>
-                <CardTitle>Connection Profile</CardTitle>
-                <CardDescription>Live connection stats and database info.</CardDescription>
-              </div>
-              {selectedCustomer ? <StatusBadge status={selectedCustomer.status} /> : null}
-            </CardHeader>
-            <CardContent>
-              {selectedCustomer ? (
-                <div className="space-y-5">
-                  <div>
-                    <p className="text-lg font-semibold text-slate-950 dark:text-white">{selectedCustomer.fullName}</p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">{selectedCustomer.accountNumber}</p>
-                  </div>
-                  <div className="grid gap-3 text-sm">
-                    <Info label="Plan Profile" value={selectedCustomer.plan} />
-                    <Info label="PPPoE User" value={selectedCustomer.pppoeUsername} />
-                    <Info label="IP Address" value={selectedCustomer.ipAddress ?? "-"} />
-                    <Info label="MAC Address" value={selectedCustomer.callerId ?? "-"} />
-                    <Info label="Session Uptime" value={selectedCustomer.uptime ?? "-"} />
-                    <Info label="Contact Phone" value={selectedCustomer.contactNumber} />
-                    <Info label="Installation Address" value={selectedCustomer.address} />
-                    <Info label="Installed Date" value={selectedCustomer.installationDate ?? "-"} />
-                    <Info label="Due Date" value={selectedCustomer.dueDate} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={actionBusy === selectedCustomer.pppoeUsername || selectedCustomer.status === "active"}
-                      onClick={() => void handleStatusAction(selectedCustomer.pppoeUsername, "/api/mikrotik/enable", `${selectedCustomer.pppoeUsername} enabled.`)}
-                      className="w-full justify-center"
-                    >
-                      <Wifi className="mr-1.5 h-4 w-4" /> Enable
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      disabled={actionBusy === selectedCustomer.pppoeUsername || selectedCustomer.status === "disabled"}
-                      onClick={() => void handleStatusAction(selectedCustomer.pppoeUsername, "/api/mikrotik/disable", `${selectedCustomer.pppoeUsername} disabled.`)}
-                      className="w-full justify-center"
-                    >
-                      <WifiOff className="mr-1.5 h-4 w-4" /> Disable
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={actionBusy === selectedCustomer.pppoeUsername}
-                      onClick={() => void handleStatusAction(selectedCustomer.pppoeUsername, "/api/mikrotik/disconnect", `${selectedCustomer.pppoeUsername} disconnected.`)}
-                      className="w-full justify-center"
-                    >
-                      <Unplug className="mr-1.5 h-4 w-4" /> Kick
-                    </Button>
-                    <Button
-                      variant="default"
-                      size="sm"
-                      className="w-full justify-center bg-emerald-600 hover:bg-emerald-700 text-white"
-                      disabled={actionBusy === selectedCustomer.pppoeUsername}
-                      onClick={() => void handlePayAction(selectedCustomer.pppoeUsername)}
-                    >
-                      <CreditCard className="mr-1.5 h-4 w-4" /> Paid
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-slate-500">Select a connection to view details.</p>
-              )}
-            </CardContent>
-          </Card>
         </div>
       )}
 
       {isMobileDetailOpen && selectedCustomer ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-4 backdrop-blur-sm sm:items-center lg:hidden animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-4 backdrop-blur-sm sm:items-center animate-in fade-in duration-200">
           <div className="fixed inset-0" onClick={() => setIsMobileDetailOpen(false)} />
           <Card className="relative z-10 w-full max-w-lg border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950 animate-in slide-in-from-bottom duration-300">
             <CardHeader className="flex-row items-start justify-between gap-4 border-b border-slate-100 pb-4 dark:border-slate-900">
@@ -756,7 +747,12 @@ export default function CustomersPage() {
                   <Info label="Contact Phone" value={selectedCustomer.contactNumber} />
                   <Info label="Installation Address" value={selectedCustomer.address} />
                   <Info label="Installed Date" value={selectedCustomer.installationDate ?? "-"} />
-                  <Info label="Due Date" value={selectedCustomer.dueDate} />
+                  <Info label="Due Date" value={formatToReadableDatetime(selectedCustomer.dueDate)} />
+                  <Info 
+                    label="Paid This Month" 
+                    value={selectedCustomer.paidThisMonth ? "Yes (✓ Paid)" : "No"} 
+                    valueClassName={selectedCustomer.paidThisMonth ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-amber-600 dark:text-amber-400 font-medium"}
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-900">
                   <Button
@@ -838,7 +834,7 @@ export default function CustomersPage() {
                   <Input type="date" {...form.register("installationDate")} />
                 </Field>
                 <Field label="Due Date" error={form.formState.errors.dueDate?.message}>
-                  <Input type="date" {...form.register("dueDate")} />
+                  <Input type="datetime-local" {...form.register("dueDate")} />
                 </Field>
                 <Field label="Address" className="md:col-span-2" error={form.formState.errors.address?.message}><Textarea {...form.register("address")} placeholder="Installation address" /></Field>
                 <div className="flex justify-end gap-2 border-t border-slate-200 pt-4 dark:border-slate-800 md:col-span-2">
@@ -854,11 +850,11 @@ export default function CustomersPage() {
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
+function Info({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-2 dark:border-slate-900">
       <span className="text-slate-500 dark:text-slate-400">{label}</span>
-      <span className="text-right font-medium text-slate-950 dark:text-white">{value}</span>
+      <span className={`text-right font-medium ${valueClassName ?? "text-slate-950 dark:text-white"}`}>{value}</span>
     </div>
   );
 }

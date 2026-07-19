@@ -195,7 +195,7 @@ export default function PPPoEPage() {
           status:            account.disabled === "true" ? "inactive" : account.profile === "Expired-Profile" ? "unpaid" : "active",
           address:           account.comment || null,
           installation_date: new Date().toISOString().split("T")[0],
-          due_date:          new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+          due_date:          new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         }),
       });
       const data = await res.json();
@@ -260,7 +260,7 @@ export default function PPPoEPage() {
         status:           customer?.status         || "active",
         address:          customer?.address        || null,
         installation_date:customer?.installation_date || new Date().toISOString().split("T")[0],
-        due_date:         customer?.due_date       || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        due_date:         customer?.due_date       || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       };
 
       const customerRes = await fetch("/api/customers", {

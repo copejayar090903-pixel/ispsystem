@@ -18,6 +18,8 @@ import {
   ChevronDown,
   AlertCircle,
   X,
+  ScrollText,
+  GitFork,
 } from "lucide-react";
 import { useState, useEffect, type ReactNode } from "react";
 import { cn } from "@/src/lib/utils";
@@ -32,16 +34,18 @@ interface SidebarItem {
 }
 
 const sidebarItems: SidebarItem[] = [
-  { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/customers", label: "Customers", icon: Users, badge: "12 overdue" },
-  { href: "/admin/pppoe", label: "PPPoE Accounts", icon: Wifi },
-  { href: "/admin/plans", label: "Plans", icon: ReceiptText },
-  { href: "/admin/billing", label: "Billing", icon: FileText, badge: "4 pending" },
-  { href: "/admin/payments", label: "Payments", icon: CreditCard, badge: "3 new" },
-  { href: "/admin/mikrotik", label: "MikroTik", icon: Router },
+  { href: "/admin/dashboard",  label: "Dashboard",      icon: LayoutDashboard },
+  { href: "/admin/customers",  label: "Customers",      icon: Users, badge: "12 overdue" },
+  { href: "/admin/pppoe",      label: "PPPoE Accounts", icon: Wifi },
+  { href: "/admin/plans",      label: "Plans",          icon: ReceiptText },
+  { href: "/admin/billing",    label: "Billing",        icon: FileText, badge: "4 pending" },
+  { href: "/admin/payments",   label: "Payments",       icon: CreditCard, badge: "3 new" },
+  { href: "/admin/mikrotik",   label: "MikroTik",       icon: Router },
+  { href: "/admin/topology",   label: "Topology Map",   icon: GitFork },
   { href: "/admin/test-connection", label: "Connection Test", icon: Network },
-  { href: "/admin/reports", label: "Reports", icon: BarChart3 },
-  { href: "/admin/settings", label: "Settings", icon: Settings },
+  { href: "/admin/reports",    label: "Reports",        icon: BarChart3 },
+  { href: "/admin/logs",       label: "Activity Logs",  icon: ScrollText },
+  { href: "/admin/settings",   label: "Settings",       icon: Settings },
 ];
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {

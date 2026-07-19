@@ -4,6 +4,8 @@ import {
   type CustomerInsert,
 } from "@/src/lib/supabase";
 import { getPPPoESecrets, createPPPoESecret, changePPPoEProfile, updatePPPoESecret } from "@/src/lib/mikrotik";
+import { cache } from "@/src/lib/redis";
+import { writeLog } from "@/src/lib/activity-log";
 
 export const runtime = "nodejs";
 
@@ -154,6 +156,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // Invalidate caches
+    await cache.del("dashboard:stats");
+    await cache.invalidatePattern("customers:*");
+
+    // Write activity log
+    await writeLog({
+      event_type: isNew ? "customer_created" : "customer_updated",
+      description: isNew
+        ? `New customer ${payload.full_name?.trim()} (${payload.pppoe_username?.trim()}) added.`
+        : `Customer ${payload.full_name?.trim()} (${payload.pppoe_username?.trim()}) record updated.`,
+      pppoe_username: payload.pppoe_username?.trim() ?? null,
+      customer_name:  payload.full_name?.trim() ?? null,
+    });
+
     return NextResponse.json({ customer: data });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to save customer.";
@@ -164,17 +180,44 @@ export async function POST(request: Request) {
 
 export async function GET() {
   try {
+    const cacheKey = "customers:list";
+    const cachedData = await cache.get<any>(cacheKey);
+    if (cachedData) {
+      return NextResponse.json({ customers: cachedData });
+    }
+
     const supabase = createSupabaseServerClient();
     const { data: customers, error } = await supabase
       .from("customers")
-      .select("*, plans(*)")
+      .select("*, plans(*), bills(id, billing_year, billing_month, status)")
       .order("created_at", { ascending: false });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ customers });
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-indexed
+
+    const customersWithPaidStatus = (customers || []).map((customer: any) => {
+      const paidThisMonth = (customer.bills || []).some(
+        (bill: any) =>
+          bill.billing_year === currentYear &&
+          bill.billing_month === currentMonth &&
+          bill.status === "paid"
+      );
+      
+      const { bills, ...rest } = customer;
+      return {
+        ...rest,
+        paid_this_month: paidThisMonth
+      };
+    });
+
+    await cache.set(cacheKey, customersWithPaidStatus, 30); // Cache for 30s
+
+    return NextResponse.json({ customers: customersWithPaidStatus });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to fetch customers.";
 

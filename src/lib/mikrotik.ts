@@ -29,6 +29,10 @@ export type ActivePPPoESession = {
   uptime?: string;
   "session-id"?: string;
   "caller-id"?: string;
+  "bytes-in"?: string;
+  "bytes-out"?: string;
+  "packets-in"?: string;
+  "packets-out"?: string;
 };
 
 export type SystemResource = {
@@ -221,6 +225,7 @@ export async function disablePPPoE(username: string) {
 
 export async function getActivePPPoESessions() {
   return withMikrotik(async (connection) => {
+    // Fetch all fields — bytes-in/bytes-out are included by default on all RouterOS versions
     const sessions = (await connection.write("/ppp/active/print")) as ActivePPPoESession[];
 
     return sessions.sort((firstSession, secondSession) =>
@@ -317,7 +322,7 @@ export type InterfaceStats = {
 
 /**
  * Fetch /interface/print with stats — returns cumulative RX/TX byte counters.
- * Call twice and diff byte values over elapsed time to compute throughput.
+ * Returns ALL interfaces including virtual PPPoE client interfaces (<pppoe-username>).
  */
 export async function getInterfaceStats() {
   return withMikrotik(async (connection) => {
