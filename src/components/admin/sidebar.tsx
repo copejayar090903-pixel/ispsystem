@@ -16,7 +16,6 @@ import {
   Users,
   Wifi,
   ChevronDown,
-  AlertCircle,
   X,
   ScrollText,
   GitFork,
@@ -195,20 +194,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         })}
       </nav>
 
-      {/* Info Panel */}
-      <div className="absolute bottom-20 left-4 right-4 rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-500/20 dark:bg-blue-500/10">
-        <div className="flex gap-2">
-          <AlertCircle className="h-4 w-4 flex-shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" />
-          <div>
-            <p className="text-xs font-semibold text-blue-950 dark:text-blue-100">
-              RouterOS Secure
-            </p>
-            <p className="mt-0.5 text-xs leading-4 text-blue-700 dark:text-blue-300">
-              All MikroTik API calls via server-side routes. Credentials never exposed.
-            </p>
-          </div>
-        </div>
-      </div>
+
 
       {/* Footer */}
       <div className="absolute bottom-0 left-0 right-0 border-t border-slate-200 bg-white/50 p-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/50">

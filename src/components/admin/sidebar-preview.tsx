@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Bell, Menu, Search, Sun } from "lucide-react";
+import { Bell, Menu, Search, Sun } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 
 /**
@@ -47,16 +47,6 @@ export function SidebarPreview() {
           ))}
         </nav>
 
-        {/* Info Box */}
-        <div className="absolute bottom-20 left-4 right-4 rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-500/20 dark:bg-blue-500/10">
-          <div className="flex gap-2">
-            <AlertCircle className="h-4 w-4 flex-shrink-0 text-blue-600 dark:text-blue-400" />
-            <div>
-              <p className="text-xs font-semibold text-blue-950 dark:text-blue-100">RouterOS Secure</p>
-              <p className="mt-0.5 text-xs text-blue-700 dark:text-blue-300">All API calls server-side</p>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Feature List */}

@@ -4,12 +4,13 @@ import { useEffect, useState } from "react";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  AreaChart, Area,
+  AreaChart, Area, ComposedChart, ReferenceLine,
 } from "recharts";
 import {
   TrendingUp, TrendingDown, Users, AlertTriangle,
   Wallet, BadgePercent, Calendar, FileSpreadsheet, FileText,
   Download, CreditCard, Activity, CheckCircle2, XCircle, Clock, Loader2,
+  DollarSign, ArrowUpRight, ArrowDownRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/src/components/admin/page-header";
@@ -226,6 +227,304 @@ export default function ReportsPage() {
           color={summary.collectionRate >= 75 ? "green" : summary.collectionRate >= 50 ? "amber" : "red"}
           trend={summary.collectionRate >= 75 ? "up" : "down"}
         />
+      </section>
+
+      {/* ─── Revenue per Month + Collection Summary ────────────────────────── */}
+      <section className="grid gap-6 xl:grid-cols-[1fr_320px]">
+      {/* Left: Revenue per Month chart + table */}
+      <Card className="overflow-hidden">
+        <CardHeader className="flex flex-row items-start justify-between gap-4 flex-wrap pb-4">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <DollarSign className="h-5 w-5 text-emerald-500" />
+              Revenue per Month
+            </CardTitle>
+            <CardDescription>Collected vs. invoiced revenue — last 12 months</CardDescription>
+          </div>
+          {/* Quick totals */}
+          <div className="flex items-center gap-6">
+            <div className="text-right">
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">12-Month Invoiced</p>
+              <p className="text-lg font-black text-slate-900 dark:text-white">
+                {formatCurrency(data.revenueTrendData.reduce((s, m) => s + m.invoiced, 0))}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">12-Month Collected</p>
+              <p className="text-lg font-black text-emerald-600 dark:text-emerald-400">
+                {formatCurrency(data.revenueTrendData.reduce((s, m) => s + m.collected, 0))}
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="px-2 sm:px-6 pb-0">
+          {/* Bar chart */}
+          <ResponsiveContainer width="100%" height={280}>
+            <ComposedChart
+              data={data.revenueTrendData}
+              margin={{ top: 10, right: 20, left: 0, bottom: 5 }}
+            >
+              <defs>
+                <linearGradient id="revenueCollectedGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
+                  <stop offset="100%" stopColor="#059669" stopOpacity={0.85} />
+                </linearGradient>
+                <linearGradient id="revenueInvoicedGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.1} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.1)" vertical={false} />
+              <XAxis
+                dataKey="month"
+                tick={{ fontSize: 10, fill: "#94a3b8" }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tickFormatter={(v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
+                tick={{ fontSize: 10, fill: "#94a3b8" }}
+                axisLine={false}
+                tickLine={false}
+                width={52}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "var(--color-card, #1e293b)",
+                  border: "1px solid rgba(148,163,184,0.15)",
+                  borderRadius: "10px",
+                  fontSize: 12,
+                }}
+                formatter={(value: any, name: string | number | undefined) => [
+                  `₱${Number(value).toLocaleString("en-PH")}`,
+                  name ?? "",
+                ]}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                formatter={(value) => <span className="text-slate-500 dark:text-slate-400">{value}</span>}
+              />
+              {/* Invoiced as a light background bar */}
+              <Bar
+                dataKey="invoiced"
+                name="Invoiced"
+                fill="url(#revenueInvoicedGrad)"
+                stroke="#3b82f6"
+                strokeWidth={1}
+                radius={[4, 4, 0, 0]}
+                maxBarSize={48}
+              />
+              {/* Collected as a vibrant foreground bar */}
+              <Bar
+                dataKey="collected"
+                name="Collected"
+                fill="url(#revenueCollectedGrad)"
+                radius={[4, 4, 0, 0]}
+                maxBarSize={48}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+
+          {/* Month-by-month summary table */}
+          <div className="mt-4 border-t border-slate-100 dark:border-slate-800">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 dark:border-slate-800">
+                    <th className="py-2.5 px-3 text-left font-semibold text-slate-400 uppercase tracking-wider">Month</th>
+                    <th className="py-2.5 px-3 text-right font-semibold text-slate-400 uppercase tracking-wider">Invoiced</th>
+                    <th className="py-2.5 px-3 text-right font-semibold text-slate-400 uppercase tracking-wider">Collected</th>
+                    <th className="py-2.5 px-3 text-right font-semibold text-slate-400 uppercase tracking-wider">Outstanding</th>
+                    <th className="py-2.5 px-3 text-right font-semibold text-slate-400 uppercase tracking-wider">Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...data.revenueTrendData].reverse().map((row, idx) => {
+                    const outstanding = row.invoiced - row.collected;
+                    const isGood = row.efficiency >= 75;
+                    const isMid = row.efficiency >= 50;
+                    return (
+                      <tr
+                        key={row.month}
+                        className={`border-b border-slate-50 dark:border-slate-900 hover:bg-slate-50/60 dark:hover:bg-slate-900/30 transition-colors ${
+                          idx === 0 ? "bg-emerald-50/40 dark:bg-emerald-500/5" : ""
+                        }`}
+                      >
+                        <td className="py-2.5 px-3 font-semibold text-slate-800 dark:text-slate-200">
+                          {row.month}
+                          {idx === 0 && (
+                            <span className="ml-1.5 inline-block text-[9px] bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold rounded px-1 py-0.5 uppercase tracking-wider">
+                              Latest
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-slate-500 dark:text-slate-400">
+                          {formatCurrency(row.invoiced)}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                          {formatCurrency(row.collected)}
+                        </td>
+                        <td className={`py-2.5 px-3 text-right font-semibold ${
+                          outstanding > 0
+                            ? "text-rose-500 dark:text-rose-400"
+                            : "text-slate-400"
+                        }`}>
+                          {outstanding > 0 ? formatCurrency(outstanding) : "—"}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          {row.invoiced > 0 ? (
+                            <span className={`inline-flex items-center gap-0.5 font-bold ${
+                              isGood
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : isMid
+                                ? "text-amber-500 dark:text-amber-400"
+                                : "text-rose-500 dark:text-rose-400"
+                            }`}>
+                              {isGood
+                                ? <ArrowUpRight className="h-3 w-3" />
+                                : <ArrowDownRight className="h-3 w-3" />}
+                              {row.efficiency}%
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 dark:text-slate-600">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
+                    <td className="py-3 px-3 font-black text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">Total</td>
+                    <td className="py-3 px-3 text-right font-black text-slate-700 dark:text-slate-300">
+                      {formatCurrency(data.revenueTrendData.reduce((s, m) => s + m.invoiced, 0))}
+                    </td>
+                    <td className="py-3 px-3 text-right font-black text-emerald-600 dark:text-emerald-400">
+                      {formatCurrency(data.revenueTrendData.reduce((s, m) => s + m.collected, 0))}
+                    </td>
+                    <td className="py-3 px-3 text-right font-black text-rose-500 dark:text-rose-400">
+                      {formatCurrency(
+                        data.revenueTrendData.reduce((s, m) => s + (m.invoiced - m.collected), 0)
+                      )}
+                    </td>
+                    <td className="py-3 px-3 text-right font-black text-slate-700 dark:text-slate-300">
+                      {(() => {
+                        const totalInv = data.revenueTrendData.reduce((s, m) => s + m.invoiced, 0);
+                        const totalCol = data.revenueTrendData.reduce((s, m) => s + m.collected, 0);
+                        return totalInv > 0 ? `${Math.round((totalCol / totalInv) * 100)}%` : "—";
+                      })()}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Right: Collection Summary */}
+      <Card className="flex flex-col overflow-hidden">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            Collection Summary
+          </CardTitle>
+          <CardDescription>12-month collected revenue breakdown</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-5 flex-1">
+          {(() => {
+            const totalInv = data.revenueTrendData.reduce((s, m) => s + m.invoiced, 0);
+            const totalCol = data.revenueTrendData.reduce((s, m) => s + m.collected, 0);
+            const totalOut = totalInv - totalCol;
+            const rate = totalInv > 0 ? Math.round((totalCol / totalInv) * 100) : 0;
+            const sorted = [...data.revenueTrendData].filter(m => m.invoiced > 0);
+            const best  = sorted.reduce((a, b) => b.efficiency > a.efficiency ? b : a, sorted[0]);
+            const worst = sorted.reduce((a, b) => b.efficiency < a.efficiency ? b : a, sorted[0]);
+            const maxCol = Math.max(...data.revenueTrendData.map(m => m.collected), 1);
+            const circumference = 2 * Math.PI * 44; // r=44
+            const dashOffset = circumference * (1 - rate / 100);
+            return (
+              <>
+                {/* Radial rate ring */}
+                <div className="flex flex-col items-center gap-1 py-2">
+                  <svg width="120" height="120" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="44" fill="none" stroke="rgba(148,163,184,0.15)" strokeWidth="8" />
+                    <circle
+                      cx="50" cy="50" r="44" fill="none"
+                      stroke={rate >= 75 ? "#10b981" : rate >= 50 ? "#f59e0b" : "#ef4444"}
+                      strokeWidth="8"
+                      strokeLinecap="round"
+                      strokeDasharray={circumference}
+                      strokeDashoffset={dashOffset}
+                      transform="rotate(-90 50 50)"
+                      style={{ transition: "stroke-dashoffset 0.6s ease" }}
+                    />
+                    <text x="50" y="46" textAnchor="middle" fontSize="18" fontWeight="900" fill="currentColor" className="fill-slate-900 dark:fill-white">{rate}%</text>
+                    <text x="50" y="61" textAnchor="middle" fontSize="8" fill="#94a3b8">collection rate</text>
+                  </svg>
+                </div>
+
+                {/* KPI rows */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-xl bg-emerald-50 dark:bg-emerald-500/10 px-4 py-3">
+                    <div>
+                      <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Total Collected</p>
+                      <p className="text-xl font-black text-emerald-700 dark:text-emerald-300">{formatCurrency(totalCol)}</p>
+                    </div>
+                    <ArrowUpRight className="h-5 w-5 text-emerald-500" />
+                  </div>
+                  <div className="flex items-center justify-between rounded-xl bg-rose-50 dark:bg-rose-500/10 px-4 py-3">
+                    <div>
+                      <p className="text-[10px] font-semibold text-rose-500 dark:text-rose-400 uppercase tracking-wider">Total Outstanding</p>
+                      <p className="text-xl font-black text-rose-600 dark:text-rose-400">{formatCurrency(totalOut)}</p>
+                    </div>
+                    <ArrowDownRight className="h-5 w-5 text-rose-500" />
+                  </div>
+                </div>
+
+                {/* Best / Worst month */}
+                {best && worst && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-xl border border-emerald-100 dark:border-emerald-500/20 p-3">
+                      <p className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest mb-1">Best Month</p>
+                      <p className="text-sm font-black text-slate-900 dark:text-white">{best.month}</p>
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">{best.efficiency}%</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{formatCurrency(best.collected)}</p>
+                    </div>
+                    <div className="rounded-xl border border-rose-100 dark:border-rose-500/20 p-3">
+                      <p className="text-[9px] font-bold text-rose-400 uppercase tracking-widest mb-1">Worst Month</p>
+                      <p className="text-sm font-black text-slate-900 dark:text-white">{worst.month}</p>
+                      <p className="text-xs text-rose-500 dark:text-rose-400 font-semibold">{worst.efficiency}%</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{formatCurrency(worst.collected)}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Mini sparkbar list — collected per month */}
+                <div className="space-y-1.5 border-t border-slate-100 dark:border-slate-800 pt-3">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Collected per Month</p>
+                  {[...data.revenueTrendData].reverse().map((m, i) => (
+                    <div key={m.month} className="flex items-center gap-2">
+                      <span className={`w-14 text-[10px] font-semibold shrink-0 ${ i === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400" }`}>
+                        {m.month}
+                      </span>
+                      <div className="flex-1 h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${ m.efficiency >= 75 ? "bg-emerald-500" : m.efficiency >= 50 ? "bg-amber-400" : "bg-rose-400" }`}
+                          style={{ width: `${Math.round((m.collected / maxCol) * 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 w-16 text-right shrink-0">
+                        {formatCurrency(m.collected)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+        </CardContent>
+      </Card>
       </section>
 
       {/* ─── Revenue Trend & Efficiency ───────────────────────────────────── */}
