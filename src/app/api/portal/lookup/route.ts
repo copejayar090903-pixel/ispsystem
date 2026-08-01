@@ -22,15 +22,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Customer not found." }, { status: 404 });
     }
 
-    const { data: bill } = await supabase
+    // Fetch ALL bills for this customer, ordered newest first
+    const { data: bills } = await supabase
       .from("bills")
       .select("*")
       .eq("customer_id", customer.id)
       .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
+      .limit(10);
 
-    return NextResponse.json({ customer, currentBill: bill });
+    const allBills = bills ?? [];
+
+    // Priority: show the most recent paid bill first, then pending, then unpaid
+    const paidBill   = allBills.find((b) => b.status === "paid");
+    const unpaidBill = allBills.find((b) => b.status === "unpaid" || b.status === "overdue");
+    const currentBill = paidBill ?? unpaidBill ?? allBills[0] ?? null;
+
+    // Check if there is a pending payment submitted for any bill
+    const { data: pendingPayments } = await supabase
+      .from("payments")
+      .select("id, status, submitted_at, amount_paid, method")
+      .eq("customer_id", customer.id)
+      .eq("status", "pending")
+      .order("submitted_at", { ascending: false })
+      .limit(1);
+
+    const pendingPayment = pendingPayments?.[0] ?? null;
+
+    return NextResponse.json({ customer, currentBill, pendingPayment });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to lookup account." },

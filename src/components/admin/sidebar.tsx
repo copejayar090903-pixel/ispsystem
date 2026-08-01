@@ -59,7 +59,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       await fetch("/api/admin/login", { method: "DELETE" });
       document.cookie = "admin_logged_in=; Path=/; Max-Age=0; SameSite=Lax";
       toast.success("Signed out successfully.");
-      router.push("/admin/login");
+      router.push("/");
       router.refresh();
     } catch (e) {
       toast.error("Failed to sign out.");

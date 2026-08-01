@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   CreditCard,
@@ -20,6 +20,14 @@ import {
   Users,
   Clock,
   Sparkles,
+  AlertTriangle,
+  RefreshCw,
+  CheckCircle2,
+  Smartphone,
+  Send,
+  Info,
+  CalendarDays,
+  BadgeCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/src/components/admin/status-badge";
@@ -30,6 +38,7 @@ import { Badge } from "@/src/components/ui/badge";
 import { formatCurrency } from "@/src/lib/utils";
 
 type CustomerPlan = {
+  id: string;
   plan_name: string;
   speed: string;
   monthly_fee: number;
@@ -53,10 +62,58 @@ type CurrentBill = {
   status: "paid" | "unpaid" | "overdue" | "suspended";
 };
 
+type PendingPayment = {
+  id: string;
+  status: string;
+  submitted_at: string;
+  amount_paid: number;
+  method: string;
+};
+
 type FAQItem = {
   question: string;
   answer: string;
 };
+
+function getRemainingDays(dueDateStr: string): number {
+  const now = new Date();
+  const due = new Date(dueDateStr);
+  const diff = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  return diff;
+}
+
+const GCASH_STEPS = [
+  {
+    step: 1,
+    title: "Open GCash App",
+    desc: 'Launch GCash on your phone and tap "Send Money" on the home screen.',
+    icon: Smartphone,
+  },
+  {
+    step: 2,
+    title: "Enter GCash Number",
+    desc: "Input our official GCash number: 09XX-XXX-XXXX. Double-check before proceeding.",
+    icon: Send,
+  },
+  {
+    step: 3,
+    title: "Enter the Amount",
+    desc: "Type the exact subscription amount shown in your selected plan. Add a note with your account number.",
+    icon: CreditCard,
+  },
+  {
+    step: 4,
+    title: "Confirm and Send",
+    desc: "Review the details and tap Confirm. Save the transaction receipt shown on screen.",
+    icon: CheckCircle2,
+  },
+  {
+    step: 5,
+    title: "Submit Reference Number",
+    desc: "Copy the 13-digit GCash reference number and paste it in the form above, then tap Submit.",
+    icon: BadgeCheck,
+  },
+];
 
 export default function Home() {
   const [accountNumber, setAccountNumber] = useState("");
@@ -65,15 +122,45 @@ export default function Home() {
   const [found, setFound] = useState(false);
   const [customerData, setCustomerData] = useState<CustomerData | null>(null);
   const [currentBill, setCurrentBill] = useState<CurrentBill | null>(null);
+  const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
 
-  // Payment Form States
+  // Payment form state
   const [paymentMethod, setPaymentMethod] = useState("gcash");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [amountPaid, setAmountPaid] = useState("");
 
+  // Renewal state
+  const [showRenewal, setShowRenewal] = useState(false);
+  const [plans, setPlans] = useState<CustomerPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<CustomerPlan | null>(null);
+  const [renewalName, setRenewalName] = useState("");
+  const [renewalRef, setRenewalRef] = useState("");
+  const [renewalSubmitting, setRenewalSubmitting] = useState(false);
 
-  // FAQ state
+  // FAQ
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
+
+  const isLocked =
+    customerData?.status === "suspended" ||
+    customerData?.status === "expired" ||
+    currentBill?.status === "overdue" ||
+    currentBill?.status === "suspended";
+
+  const fetchPlans = async () => {
+    setPlansLoading(true);
+    try {
+      const res = await fetch("/api/plans");
+      const data = await res.json();
+      if (res.ok && data.plans) {
+        setPlans(data.plans.filter((p: CustomerPlan) => p.speed !== "Expired-Profile"));
+      }
+    } catch {
+      toast.error("Failed to load subscription plans.");
+    } finally {
+      setPlansLoading(false);
+    }
+  };
 
   const handleLookup = async () => {
     if (!accountNumber.trim()) {
@@ -93,13 +180,19 @@ export default function Home() {
       }
       setCustomerData(data.customer);
       setCurrentBill(data.currentBill);
+      setPendingPayment(data.pendingPayment ?? null);
       setFound(true);
+      setShowRenewal(false);
+      setSelectedPlan(null);
+      setRenewalName("");
+      setRenewalRef("");
       toast.success("Account statement loaded successfully.");
     } catch (err: any) {
       toast.error(err.message || "Account lookup failed.");
       setFound(false);
       setCustomerData(null);
       setCurrentBill(null);
+      setPendingPayment(null);
     } finally {
       setLoading(false);
     }
@@ -107,10 +200,6 @@ export default function Home() {
 
   const handleSubmitPayment = async () => {
     if (!customerData) return;
-    if (!paymentMethod) {
-      toast.error("Please select a payment method.");
-      return;
-    }
     if (!amountPaid || Number(amountPaid) <= 0) {
       toast.error("Please enter the amount paid.");
       return;
@@ -129,20 +218,59 @@ export default function Home() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Submission failed.");
-      }
+      if (!res.ok) throw new Error(data.error || "Submission failed.");
       toast.success(data.message || "Payment proof uploaded for verification.");
-      
       setReferenceNumber("");
       setAmountPaid("");
-
       await handleLookup();
     } catch (err: any) {
       toast.error(err.message || "Failed to submit payment proof.");
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleRenewalSubmit = async () => {
+    if (!customerData) return;
+    if (!selectedPlan) { toast.error("Please select a subscription plan."); return; }
+    if (!renewalName.trim()) { toast.error("Please enter your name."); return; }
+    if (!renewalRef.trim()) { toast.error("Please enter your GCash reference number."); return; }
+
+    setRenewalSubmitting(true);
+    try {
+      const res = await fetch("/api/portal/payment-submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountNumber: customerData.account_number,
+          method: "gcash",
+          referenceNumber: renewalRef.trim(),
+          amountPaid: selectedPlan.monthly_fee,
+          proofUrl: null,
+          customerName: renewalName.trim(),
+          planId: selectedPlan.id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Renewal submission failed.");
+      toast.success("Renewal request submitted! Our team will process it within 30 minutes.");
+      setShowRenewal(false);
+      setSelectedPlan(null);
+      setRenewalName("");
+      setRenewalRef("");
+      await handleLookup();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to submit renewal.");
+    } finally {
+      setRenewalSubmitting(false);
+    }
+  };
+
+  const handleShowRenewal = () => {
+    setShowRenewal(true);
+    // Pre-fill name from customer's account data
+    if (customerData?.full_name) setRenewalName(customerData.full_name);
+    void fetchPlans();
   };
 
   const toggleFaq = (index: number) => {
@@ -201,16 +329,16 @@ export default function Home() {
       </header>
 
       {/* Hero & Payment Lookup Section */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 sm:pt-20 pb-16 grid lg:grid-cols-[1.05fr_0.95fr] gap-12 lg:gap-16 items-center">
-        <div className="space-y-6 text-center lg:text-left">
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 sm:pt-20 pb-16 grid lg:grid-cols-[1.05fr_0.95fr] gap-12 lg:gap-16 items-start">
+        <div className="space-y-6 text-center lg:text-left lg:pt-4">
           <div className="inline-flex items-center gap-2 rounded-full border border-blue-200/80 dark:border-blue-800 bg-blue-50/50 dark:bg-slate-900 px-4 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400 shadow-sm backdrop-blur">
-            <Sparkles className="h-3.5 w-3.5 text-amber-500 animate-pulse" /> Gigabit Home & Business Fiber
+            <Sparkles className="h-3.5 w-3.5 text-amber-500 animate-pulse" /> Gigabit Home &amp; Business Fiber
           </div>
           <h1 className="font-display text-4xl sm:text-6xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.05]">
             Fast fiber connection, <span className="bg-gradient-to-r from-blue-600 to-emerald-500 bg-clip-text text-transparent">simple statements.</span>
           </h1>
           <p className="max-w-xl text-base sm:text-lg text-slate-600 dark:text-slate-350 leading-relaxed mx-auto lg:mx-0">
-            Check your outstanding statement, download receipts, and upload payment confirmation. Paste your GCash/Maya reference number to trigger instant automated reconnection.
+            Check your outstanding statement, download receipts, and upload payment confirmation. Paste your GCash reference number to trigger instant automated reconnection.
           </p>
           <div className="grid grid-cols-3 gap-6 max-w-md mx-auto lg:mx-0 pt-6 text-xs font-medium text-slate-500 dark:text-slate-400">
             <div className="flex flex-col items-center lg:items-start space-y-1">
@@ -237,8 +365,8 @@ export default function Home() {
                   <Receipt className="h-5 w-5" />
                 </div>
                 <div>
-                  <CardTitle className="text-base font-bold">Billing Statement Tracker</CardTitle>
-                  <CardDescription>Instant balances lookup and payments gateway</CardDescription>
+                  <CardTitle className="text-base font-bold">Account & Billing Tracker</CardTitle>
+                  <CardDescription>Instant account lookup, balance, and payments gateway</CardDescription>
                 </div>
               </div>
             </CardHeader>
@@ -273,53 +401,97 @@ export default function Home() {
                   </div>
                 </div>
               ) : (
-                // Statement and upload payment view
                 customerData && (
-                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    {/* Account header with change button */}
                     <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-850 rounded-2xl p-4">
                       <div className="space-y-1">
                         <span className="text-xs text-slate-400 block">Customer Account</span>
                         <span className="font-bold text-slate-900 dark:text-white">{customerData.full_name}</span>
                         <span className="text-[10px] font-mono block text-slate-400">{customerData.account_number}</span>
                       </div>
-                      <Button variant="outline" size="sm" onClick={() => setFound(false)} className="rounded-xl">
-                        Change Account
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {!showRenewal && (
+                          <Button
+                            size="sm"
+                            className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md shadow-blue-500/20 border-0"
+                            onClick={handleShowRenewal}
+                          >
+                            <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Renew
+                          </Button>
+                        )}
+                        <Button variant="outline" size="sm" onClick={() => { setFound(false); setShowRenewal(false); }} className="rounded-xl">
+                          Change
+                        </Button>
+                      </div>
                     </div>
 
-                    <div className="grid gap-4 sm:grid-cols-2 text-xs">
-                      <div className="bg-slate-50/50 dark:bg-slate-900/20 border border-slate-100/60 dark:border-slate-900/80 p-3.5 rounded-2xl">
-                        <span className="text-slate-400 block mb-1">Package Plan</span>
-                        <span className="font-bold text-slate-800 dark:text-slate-200 block">
-                          {customerData.plans?.plan_name ?? "No Plan"}
-                        </span>
-                        <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">{customerData.plans?.speed ?? "-"} speed</span>
+                    {/* LOCKED / SUSPENDED BANNER */}
+                    {isLocked && (
+                      <div className="rounded-2xl border border-rose-200 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10 p-4 flex gap-3 items-start animate-in fade-in duration-300">
+                        <AlertTriangle className="h-5 w-5 text-rose-500 flex-shrink-0 mt-0.5" />
+                        <div className="space-y-1 flex-1">
+                          <p className="text-sm font-bold text-rose-800 dark:text-rose-300">Account Locked / Suspended</p>
+                          <p className="text-xs text-rose-700/80 dark:text-rose-400/80 leading-relaxed">
+                            Your account is suspended due to an overdue balance or expired subscription. Use the <strong>Renew</strong> button above to restore your connection.
+                          </p>
+                        </div>
                       </div>
-                      <div className="bg-slate-50/50 dark:bg-slate-900/20 border border-slate-100/60 dark:border-slate-900/80 p-3.5 rounded-2xl">
-                        <span className="text-slate-400 block mb-1">PPPoE ID</span>
-                        <span className="font-bold text-blue-600 dark:text-blue-400 font-mono block">
-                          {customerData.pppoe_username}
-                        </span>
-                        <span className="text-[10px] text-slate-400 mt-0.5 block flex items-center gap-1.5">
-                          <StatusBadge status={customerData.status} /> Connection Status
-                        </span>
+                    )}
+
+                    {/* Pending payment banner */}
+                    {pendingPayment && (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10 p-4 flex gap-3 items-start animate-in fade-in duration-300">
+                        <div className="h-5 w-5 flex-shrink-0 mt-0.5 text-amber-500">⏳</div>
+                        <div className="space-y-0.5 flex-1">
+                          <p className="text-sm font-bold text-amber-800 dark:text-amber-300">Payment Pending Verification</p>
+                          <p className="text-xs text-amber-700/80 dark:text-amber-400/80 leading-relaxed">
+                            You have already submitted a payment of <strong>{formatCurrency(pendingPayment.amount_paid)}</strong> via <strong className="capitalize">{pendingPayment.method}</strong>. Our team is reviewing it. Connection will be restored once verified (usually within 2 hours on business days).
+                          </p>
+                        </div>
                       </div>
+                    )}
+
+                    {/* Full account details grid */}
+                    <div className="grid gap-3 sm:grid-cols-2 text-xs">
+                      <InfoTile label="Customer Name" value={customerData.full_name} />
+                      <InfoTile label="Account Number" value={customerData.account_number} mono />
+
+                      <div className="bg-slate-50/50 dark:bg-slate-900/20 border border-slate-100/60 dark:border-slate-900/80 p-3.5 rounded-2xl">
+                        <span className="text-slate-400 block mb-1">Account Status</span>
+                        <StatusBadge status={customerData.status} />
+                      </div>
+
+                      <InfoTile label="Package Plan" value={customerData.plans?.plan_name ?? "No Plan"} sub={customerData.plans?.speed ? `${customerData.plans.speed} speed` : undefined} />
+
+                      <InfoTile label="PPPoE Username" value={customerData.pppoe_username} mono />
 
                       {currentBill ? (
                         <>
                           <div className="bg-slate-50/50 dark:bg-slate-900/20 border border-slate-100/60 dark:border-slate-900/80 p-3.5 rounded-2xl">
                             <span className="text-slate-400 block mb-1">Invoice Due Date</span>
-                            <span className="font-bold text-rose-500 block">{currentBill.due_date}</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5 block">Cycle: {new Date(currentBill.billing_period_start).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "2-digit" })} to {new Date(currentBill.billing_period_end).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "2-digit" })}</span>
+                            <span className={`font-bold block ${new Date(currentBill.due_date) < new Date() ? "text-rose-500" : "text-slate-900 dark:text-white"}`}>
+                              {new Date(currentBill.due_date).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "2-digit" })}
+                            </span>
                           </div>
+
                           <div className="bg-slate-50/50 dark:bg-slate-900/20 border border-slate-100/60 dark:border-slate-900/80 p-3.5 rounded-2xl">
                             <span className="text-slate-400 block mb-1">Total Outstanding</span>
-                            <span className="font-black text-slate-900 dark:text-white text-sm block">
-                              {formatCurrency(currentBill.amount_due)}
+                            <span className="font-black text-slate-900 dark:text-white text-sm block">{formatCurrency(currentBill.amount_due)}</span>
+                          </div>
+
+                          <div className="bg-slate-50/50 dark:bg-slate-900/20 border border-slate-100/60 dark:border-slate-900/80 p-3.5 rounded-2xl sm:col-span-2">
+                            <span className="text-slate-400 flex items-center gap-1 mb-1">
+                              <CalendarDays className="h-3 w-3" /> Remaining Days
                             </span>
-                            <span className="text-[10px] mt-0.5 block">
-                              <StatusBadge status={currentBill.status} /> Invoice Status
-                            </span>
+                            {(() => {
+                              const days = getRemainingDays(currentBill.due_date);
+                              return (
+                                <span className={`font-bold text-sm block ${days <= 3 ? "text-rose-500" : days <= 7 ? "text-amber-500" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                  {days > 0 ? `${days} day${days !== 1 ? "s" : ""} until due` : days === 0 ? "Due today" : `${Math.abs(days)} day${Math.abs(days) !== 1 ? "s" : ""} overdue`}
+                                </span>
+                              );
+                            })()}
                           </div>
                         </>
                       ) : (
@@ -329,8 +501,159 @@ export default function Home() {
                       )}
                     </div>
 
-                    {currentBill && currentBill.status !== "paid" && (
-                      <div className="border-t border-slate-100 dark:border-slate-900 pt-4 space-y-4">
+                    {/* ============= RENEWAL FLOW ============= */}
+                    {showRenewal && (
+                      <div className="border border-orange-200 dark:border-orange-500/30 rounded-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-3 duration-300">
+                        {/* Renewal header */}
+                        <div className="bg-gradient-to-r from-orange-500/10 to-rose-500/10 dark:from-orange-500/15 dark:to-rose-500/15 px-5 py-4 border-b border-orange-200 dark:border-orange-500/30">
+                          <p className="font-bold text-orange-900 dark:text-orange-200 flex items-center gap-2">
+                            <RefreshCw className="h-4 w-4" /> Renew Subscription
+                          </p>
+                          <p className="text-xs text-orange-700/80 dark:text-orange-300/80 mt-1">Select your plan, fill in the form, and follow the GCash payment steps below.</p>
+                        </div>
+
+                        <div className="p-5 space-y-6 bg-white/60 dark:bg-slate-950/60">
+                          {/* Step 1: Plan selection */}
+                          <div className="space-y-3">
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold">1</span>
+                              Choose a Plan
+                            </label>
+                            {plansLoading ? (
+                              <div className="flex items-center justify-center py-6">
+                                <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+                              </div>
+                            ) : (
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {plans.length === 0 ? (
+                                  <p className="text-xs text-slate-400 col-span-2 text-center py-4">No plans available.</p>
+                                ) : (
+                                  plans.map((plan) => (
+                                    <button
+                                      key={plan.id}
+                                      onClick={() => setSelectedPlan(plan)}
+                                      className={`text-left p-3.5 rounded-2xl border-2 transition-all duration-200 ${
+                                        selectedPlan?.id === plan.id
+                                          ? "border-blue-500 bg-blue-50 dark:bg-blue-500/10"
+                                          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-300"
+                                      }`}
+                                    >
+                                      <div className="flex justify-between items-start">
+                                        <div>
+                                          <p className="font-bold text-xs text-slate-900 dark:text-white">{plan.plan_name}</p>
+                                          <p className="text-[10px] text-slate-400 mt-0.5">
+                                            {plan.monthly_fee === 700 ? "30 to 75 Mbps" : plan.speed} speed
+                                          </p>
+                                        </div>
+                                        <div className="text-right">
+                                          <p className="font-extrabold text-sm text-slate-900 dark:text-white">₱{plan.monthly_fee}</p>
+                                          <p className="text-[10px] text-slate-400">/month</p>
+                                        </div>
+                                      </div>
+                                      {selectedPlan?.id === plan.id && (
+                                        <div className="mt-2 flex items-center gap-1 text-[10px] font-semibold text-blue-600 dark:text-blue-400">
+                                          <CheckCircle2 className="h-3 w-3" /> Selected
+                                        </div>
+                                      )}
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Step 2: Name & Reference */}
+                          <div className="space-y-3">
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold">2</span>
+                              Your Details &amp; Payment Reference
+                            </label>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Full Name</label>
+                                <Input
+                                  placeholder="e.g. Juan Dela Cruz"
+                                  value={renewalName}
+                                  onChange={(e) => setRenewalName(e.target.value)}
+                                  className="h-10 rounded-xl border-slate-200 dark:border-slate-800 focus-visible:ring-blue-500 text-sm"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">GCash Reference No.</label>
+                                <Input
+                                  placeholder="e.g. 2024082512345"
+                                  value={renewalRef}
+                                  onChange={(e) => setRenewalRef(e.target.value)}
+                                  className="h-10 rounded-xl border-slate-200 dark:border-slate-800 focus-visible:ring-blue-500 text-sm font-mono"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Step 3: How to pay via GCash */}
+                          <div className="space-y-3">
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold">3</span>
+                              How to Pay via GCash
+                            </label>
+                            <div className="rounded-2xl border border-emerald-200 dark:border-emerald-500/25 bg-emerald-50/60 dark:bg-emerald-500/5 p-4 space-y-3">
+                              {GCASH_STEPS.map((s) => {
+                                const Icon = s.icon;
+                                return (
+                                  <div key={s.step} className="flex gap-3 items-start">
+                                    <div className="flex-shrink-0 h-7 w-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-[11px] font-bold shadow-sm shadow-emerald-500/20">
+                                      {s.step}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{s.title}</p>
+                                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">{s.desc}</p>
+                                    </div>
+                                    <Icon className="h-4 w-4 text-emerald-500 flex-shrink-0 mt-0.5" />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="flex items-start gap-2 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 rounded-xl p-3">
+                              <Info className="h-4 w-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                              <p className="text-[11px] text-blue-700 dark:text-blue-300 leading-relaxed">
+                                Amount to send:{" "}
+                                <strong className="font-bold">
+                                  {selectedPlan ? `₱${selectedPlan.monthly_fee.toLocaleString()}` : "select a plan above"}
+                                </strong>. Send to our official GCash number. Verification takes up to 2 hours on business days.
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Submit Renewal */}
+                          <div className="flex gap-2 pt-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="rounded-xl"
+                              onClick={() => setShowRenewal(false)}
+                              disabled={renewalSubmitting}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              className="flex-1 h-11 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium shadow-lg shadow-blue-500/15"
+                              onClick={() => void handleRenewalSubmit()}
+                              disabled={renewalSubmitting}
+                            >
+                              {renewalSubmitting ? (
+                                <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Submitting...</>
+                              ) : (
+                                <><Send className="h-4 w-4 mr-1.5" /> Submit Renewal Request</>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ============= REGULAR PAYMENT FORM (unpaid/overdue but not renewal) ============= */}
+                    {!showRenewal && currentBill && currentBill.status !== "paid" && (
+                      <div className="border-t border-slate-100 dark:border-slate-900 pt-5 space-y-4">
                         <div className="bg-blue-500/5 dark:bg-blue-500/10 border border-blue-500/15 p-3.5 rounded-2xl flex gap-2 text-xs">
                           <CreditCard className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
                           <div>
@@ -374,18 +697,13 @@ export default function Home() {
                               onChange={(e) => setAmountPaid(e.target.value)}
                             />
                           </div>
-
                         </div>
 
                         <Button onClick={() => void handleSubmitPayment()} disabled={submitting} className="w-full h-11 rounded-xl shadow-md">
                           {submitting ? (
-                            <>
-                              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Uploading Receipt...
-                            </>
+                            <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Uploading Receipt...</>
                           ) : (
-                            <>
-                              <FileImage className="h-4 w-4 mr-1.5" /> Submit Payment Verification
-                            </>
+                            <><FileImage className="h-4 w-4 mr-1.5" /> Submit Payment Verification</>
                           )}
                         </Button>
                       </div>
@@ -393,7 +711,7 @@ export default function Home() {
 
                     {currentBill && currentBill.status === "paid" && (
                       <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-400 p-4 rounded-2xl text-xs font-semibold text-center animate-in zoom-in-95 duration-300">
-                        This bill has been paid and verified. Thank you!
+                        ✅ This bill has been paid and verified. Thank you!
                       </div>
                     )}
                   </div>
@@ -551,7 +869,7 @@ export default function Home() {
             >
               <button
                 onClick={() => toggleFaq(index)}
-                className="w-full flex justify-between items-center px-6 py-4.5 text-left font-semibold text-sm hover:bg-slate-50/50 dark:hover:bg-slate-900/10 focus:outline-none"
+                className="w-full flex justify-between items-center px-6 py-4 text-left font-semibold text-sm hover:bg-slate-50/50 dark:hover:bg-slate-900/10 focus:outline-none"
               >
                 <span>{item.question}</span>
                 <ChevronDown
@@ -611,6 +929,16 @@ export default function Home() {
         <p>© 2026 Devcop IT Solution. All rights reserved. All connection APIs secure and synced.</p>
       </footer>
     </main>
+  );
+}
+
+function InfoTile({ label, value, sub, mono }: { label: string; value: string; sub?: string; mono?: boolean }) {
+  return (
+    <div className="bg-slate-50/50 dark:bg-slate-900/20 border border-slate-100/60 dark:border-slate-900/80 p-3.5 rounded-2xl">
+      <span className="text-slate-400 block mb-1 text-[11px]">{label}</span>
+      <span className={`font-bold text-slate-800 dark:text-slate-200 block text-xs ${mono ? "font-mono" : ""}`}>{value}</span>
+      {sub && <span className="text-[10px] text-slate-400 mt-0.5 block">{sub}</span>}
+    </div>
   );
 }
 

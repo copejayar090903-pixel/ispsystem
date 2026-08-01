@@ -97,6 +97,15 @@ const calculateRemainingDays = (dueDateStr: string) => {
   return `${diffDays} days left`;
 };
 
+// Returns true if customer should be considered unpaid (≤15 days remaining OR overdue)
+const isDueOrNearlyDue = (dueDateStr: string) => {
+  if (!dueDateStr || dueDateStr === "-") return false;
+  const dueDate = new Date(dueDateStr);
+  const today = new Date();
+  const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  return diffDays <= 15;
+};
+
 function formatToDatetimeLocal(dateStr: string | null | undefined): string {
   if (!dateStr || dateStr === "-") {
     const d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
@@ -147,6 +156,8 @@ export default function CustomersPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isMobileDetailOpen, setIsMobileDetailOpen] = useState(false);
   const [routerError, setRouterError] = useState<string | null>(null);
+
+  const [tab, setTab] = useState<"all" | "paid" | "unpaid">("all");
 
   const form = useForm<CustomerForm>({
     resolver: zodResolver(customerSchema),
@@ -415,58 +426,51 @@ export default function CustomersPage() {
     void autoSync();
   }, [activeSessions, dbCustomers, secrets, plans, loading]);
 
-  const activeCustomers = useMemo(() => {
-    if (secrets.length === 0 || activeSessions.length === 0) {
-      // Fallback: If router is offline, show all database customers so they can still be managed/paid
-      return dbCustomers.map((customer) => {
-        return {
-          id: customer.id,
-          accountNumber: customer.account_number || "NOT_SYNCED",
-          fullName: customer.full_name || "-",
-          contactNumber: customer.contact_number || "-",
-          email: customer.email || "-",
-          pppoeUsername: customer.pppoe_username,
-          plan: customer.plans?.plan_name || "default",
-          dueDate: customer.due_date || "-",
-          installationDate: customer.installation_date || "-",
-          status: customer.status || "active",
-          address: customer.address || "-",
-          uptime: "Router Offline",
-          ipAddress: "-",
-          callerId: "-",
-          paidThisMonth: customer.paid_this_month || false,
-        };
-      });
-    }
+  const allCustomers = useMemo(() => {
+    // Always show ALL database customers regardless of online/offline status
+    return dbCustomers.map((customer) => {
+      const session = activeSessions.find((s) => (s.user || s.name) === customer.pppoe_username);
+      const secret = secrets.find((s) => s.name === customer.pppoe_username);
 
-    return activeSessions.map((session) => {
-      const username = session.user || session.name || "";
-      const secret = secrets.find((s) => s.name === username);
-      const customer = dbCustomers.find((c) => c.pppoe_username === username);
+      // Determine effective status
+      let effectiveStatus = customer.status || "active";
+      if (secret?.disabled === "true") effectiveStatus = "disabled";
+      else if (secret?.profile === "Expired-Profile") effectiveStatus = "unpaid";
+
+      // Auto-mark as unpaid if ≤15 days remain and not already paid this month
+      const nearlyDue = isDueOrNearlyDue(customer.due_date);
+      if (nearlyDue && !customer.paid_this_month && effectiveStatus === "active") {
+        effectiveStatus = "unpaid";
+      }
 
       return {
-        id: customer?.id || username,
-        accountNumber: customer?.account_number || "NOT_SYNCED",
-        fullName: customer?.full_name || secret?.comment || username,
-        contactNumber: customer?.contact_number || "-",
-        email: customer?.email || "-",
-        pppoeUsername: username,
-        plan: customer?.plans?.plan_name || secret?.profile || "default",
-        dueDate: customer?.due_date || "-",
-        installationDate: customer?.installation_date || "-",
-        status: secret?.disabled === "true"
-          ? "disabled"
-          : secret?.profile === "Expired-Profile"
-            ? "unpaid"
-            : customer?.status || "active",
-        address: customer?.address || secret?.comment || "-",
-        uptime: session.uptime || "-",
-        ipAddress: session.address || "-",
-        callerId: session["caller-id"] || "-",
-        paidThisMonth: customer?.paid_this_month || false,
+        id: customer.id,
+        accountNumber: customer.account_number || "NOT_SYNCED",
+        fullName: customer.full_name || "-",
+        contactNumber: customer.contact_number || "-",
+        email: customer.email || "-",
+        pppoeUsername: customer.pppoe_username,
+        plan: customer.plans?.plan_name || secret?.profile || "default",
+        dueDate: customer.due_date || "-",
+        installationDate: customer.installation_date || "-",
+        status: effectiveStatus,
+        address: customer.address || "-",
+        uptime: session?.uptime || (secret ? "Offline" : "Not Connected"),
+        ipAddress: session?.address || "-",
+        callerId: session?.["caller-id"] || "-",
+        paidThisMonth: customer.paid_this_month || false,
       };
     });
   }, [activeSessions, secrets, dbCustomers]);
+
+  const filteredCustomers = useMemo(() => {
+    if (tab === "paid") return allCustomers.filter((c) => c.paidThisMonth);
+    if (tab === "unpaid") return allCustomers.filter((c) => !c.paidThisMonth && (c.status === "unpaid" || isDueOrNearlyDue(c.dueDate)));
+    return allCustomers;
+  }, [allCustomers, tab]);
+
+  // Keep activeCustomers alias for backward-compat with selected customer sync below
+  const activeCustomers = allCustomers;
 
   // Sync selectedCustomer reference when activeCustomers list updates
   useEffect(() => {
@@ -701,16 +705,50 @@ export default function CustomersPage() {
           <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
         </div>
       ) : (
-        <div className="w-full">
+      <div className="w-full">
+          {/* Paid / Unpaid navigation tabs */}
+          <div className="flex gap-1 mb-4 p-1 bg-slate-100 dark:bg-slate-900 rounded-2xl w-fit">
+            {([
+              { key: "all", label: `All (${allCustomers.length})` },
+              { key: "paid", label: `Paid (${allCustomers.filter((c) => c.paidThisMonth).length})` },
+              { key: "unpaid", label: `Unpaid (${allCustomers.filter((c) => !c.paidThisMonth && (c.status === "unpaid" || isDueOrNearlyDue(c.dueDate))).length})` },
+            ] as const).map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`px-4 py-1.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                  tab === key
+                    ? key === "unpaid"
+                      ? "bg-rose-600 text-white shadow-sm"
+                      : key === "paid"
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : "bg-white dark:bg-slate-950 text-slate-900 dark:text-white shadow-sm"
+                    : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <Card>
             <CardHeader className="gap-4 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle>Active PPPoE Connections ({activeCustomers.length})</CardTitle>
-                <CardDescription>Showing only subscribers with active RouterOS PPPoE sessions.</CardDescription>
+                <CardTitle>
+                  {tab === "paid" ? "Paid Customers" : tab === "unpaid" ? "Unpaid / Due Customers" : "All Customers"}
+                  {" "}({filteredCustomers.length})
+                </CardTitle>
+                <CardDescription>
+                  {tab === "unpaid"
+                    ? "Customers with ≤15 days remaining, overdue, or unpaid status."
+                    : tab === "paid"
+                    ? "Customers who paid their subscription this month."
+                    : "All customer records from the database (online and offline)."}
+                </CardDescription>
               </div>
             </CardHeader>
             <CardContent>
-              <DataTable columns={columns} data={activeCustomers} searchPlaceholder="Search active connections..." />
+              <DataTable columns={columns} data={filteredCustomers} searchPlaceholder="Search customers..." />
             </CardContent>
           </Card>
         </div>
