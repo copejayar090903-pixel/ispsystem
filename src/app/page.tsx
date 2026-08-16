@@ -13,6 +13,7 @@ import {
   Zap,
   Activity,
   UserCheck,
+  User,
   Receipt,
   Network,
   ChevronDown,
@@ -50,6 +51,7 @@ type CustomerData = {
   full_name: string;
   pppoe_username: string;
   status: string;
+  due_date: string;
   plans?: CustomerPlan;
 };
 
@@ -137,6 +139,46 @@ export default function Home() {
   const [renewalName, setRenewalName] = useState("");
   const [renewalRef, setRenewalRef] = useState("");
   const [renewalSubmitting, setRenewalSubmitting] = useState(false);
+
+  const [timeLeft, setTimeLeft] = useState<{
+    days: number;
+    hours: number;
+    minutes: number;
+    seconds: number;
+    isOverdue: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!customerData?.due_date) {
+      setTimeLeft(null);
+      return;
+    }
+
+    const updateTimer = () => {
+      const target = new Date(customerData.due_date).getTime();
+      const now = new Date().getTime();
+      const difference = target - now;
+
+      if (difference < 0) {
+        const absDiff = Math.abs(difference);
+        const d = Math.floor(absDiff / (1000 * 60 * 60 * 24));
+        const h = Math.floor((absDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const m = Math.floor((absDiff % (1000 * 60 * 60)) / (1000 * 60));
+        const s = Math.floor((absDiff % (1000 * 60)) / 1000);
+        setTimeLeft({ days: d, hours: h, minutes: m, seconds: s, isOverdue: true });
+      } else {
+        const d = Math.floor(difference / (1000 * 60 * 60 * 24));
+        const h = Math.floor((difference % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const m = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
+        const s = Math.floor((difference % (1000 * 60)) / 1000);
+        setTimeLeft({ days: d, hours: h, minutes: m, seconds: s, isOverdue: false });
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [customerData?.due_date]);
 
   // FAQ
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
@@ -359,17 +401,32 @@ export default function Home() {
         {/* Dynamic Billing Portal Card */}
         <div id="bill-portal" className="w-full">
           <Card className="bg-white/90 dark:bg-slate-950/90 shadow-2xl border border-slate-200/50 dark:border-slate-850/80 backdrop-blur-md rounded-3xl overflow-hidden shadow-blue-500/5 transition duration-300">
-            <CardHeader className="border-b border-slate-100 dark:border-slate-900 bg-slate-50/50 dark:bg-slate-900/10 py-5">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-2xl bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400">
-                  <Receipt className="h-5 w-5" />
+            {found && customerData ? (
+              <CardHeader className="flex flex-row items-center justify-between gap-4 px-6 py-5">
+                <div className="flex flex-col text-left">
+                  <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Account Number:</span>
+                  <span className="text-lg font-black text-slate-800 dark:text-slate-200 font-mono tracking-wider">{customerData.account_number}</span>
                 </div>
-                <div>
-                  <CardTitle className="text-base font-bold">Account & Billing Tracker</CardTitle>
-                  <CardDescription>Instant account lookup, balance, and payments gateway</CardDescription>
+                <Button
+                  onClick={() => { setFound(false); setShowRenewal(false); }}
+                  className="bg-[#00cbab] hover:bg-[#00b598] text-white font-bold px-5 py-2 rounded-xl text-sm border-0 shadow-md shadow-[#00cbab]/20 transition-all"
+                >
+                  Logout
+                </Button>
+              </CardHeader>
+            ) : (
+              <CardHeader className="border-b border-slate-100 dark:border-slate-900 bg-slate-50/50 dark:bg-slate-900/10 py-5">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-2xl bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                    <Receipt className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base font-bold">Account & Billing Tracker</CardTitle>
+                    <CardDescription>Instant account lookup, balance, and payments gateway</CardDescription>
+                  </div>
                 </div>
-              </div>
-            </CardHeader>
+              </CardHeader>
+            )}
             <CardContent className="pt-6 space-y-6">
               {!found ? (
                 // Initial Search view
@@ -403,29 +460,6 @@ export default function Home() {
               ) : (
                 customerData && (
                   <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    {/* Account header with change button */}
-                    <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-850 rounded-2xl p-4">
-                      <div className="space-y-1">
-                        <span className="text-xs text-slate-400 block">Customer Account</span>
-                        <span className="font-bold text-slate-900 dark:text-white">{customerData.full_name}</span>
-                        <span className="text-[10px] font-mono block text-slate-400">{customerData.account_number}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {!showRenewal && (
-                          <Button
-                            size="sm"
-                            className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md shadow-blue-500/20 border-0"
-                            onClick={handleShowRenewal}
-                          >
-                            <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Renew
-                          </Button>
-                        )}
-                        <Button variant="outline" size="sm" onClick={() => { setFound(false); setShowRenewal(false); }} className="rounded-xl">
-                          Change
-                        </Button>
-                      </div>
-                    </div>
-
                     {/* LOCKED / SUSPENDED BANNER */}
                     {isLocked && (
                       <div className="rounded-2xl border border-rose-200 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10 p-4 flex gap-3 items-start animate-in fade-in duration-300">
@@ -433,7 +467,7 @@ export default function Home() {
                         <div className="space-y-1 flex-1">
                           <p className="text-sm font-bold text-rose-800 dark:text-rose-300">Account Locked / Suspended</p>
                           <p className="text-xs text-rose-700/80 dark:text-rose-400/80 leading-relaxed">
-                            Your account is suspended due to an overdue balance or expired subscription. Use the <strong>Renew</strong> button above to restore your connection.
+                            Your account is suspended due to an overdue balance or expired subscription. Please renew your subscription to restore service.
                           </p>
                         </div>
                       </div>
@@ -452,51 +486,69 @@ export default function Home() {
                       </div>
                     )}
 
-                    {/* Full account details grid */}
-                    <div className="grid gap-3 sm:grid-cols-2 text-xs">
-                      <InfoTile label="Customer Name" value={customerData.full_name} />
-                      <InfoTile label="Account Number" value={customerData.account_number} mono />
+                    {/* S2S Styled Core Dashboard */}
+                    <div className="flex flex-col items-center space-y-6 pt-2">
+                      <hr className="w-full border-slate-100 dark:border-slate-800/80" />
 
-                      <div className="bg-slate-50/50 dark:bg-slate-900/20 border border-slate-100/60 dark:border-slate-900/80 p-3.5 rounded-2xl">
-                        <span className="text-slate-400 block mb-1">Account Status</span>
-                        <StatusBadge status={customerData.status} />
+                      {/* Customer particulars */}
+                      <div className="text-center">
+                        <h3 className="text-xl font-black text-slate-800 dark:text-white leading-tight">{customerData.full_name}</h3>
                       </div>
 
-                      <InfoTile label="Package Plan" value={customerData.plans?.plan_name ?? "No Plan"} sub={customerData.plans?.speed ? `${customerData.plans.speed} speed` : undefined} />
+                      {/* Internet time left label */}
+                      <div className="text-center font-bold text-slate-600 dark:text-slate-300 text-sm tracking-wide mt-2">
+                        Internet time left
+                      </div>
 
-                      <InfoTile label="PPPoE Username" value={customerData.pppoe_username} mono />
-
-                      {currentBill ? (
-                        <>
-                          <div className="bg-slate-50/50 dark:bg-slate-900/20 border border-slate-100/60 dark:border-slate-900/80 p-3.5 rounded-2xl">
-                            <span className="text-slate-400 block mb-1">Invoice Due Date</span>
-                            <span className={`font-bold block ${new Date(currentBill.due_date) < new Date() ? "text-rose-500" : "text-slate-900 dark:text-white"}`}>
-                              {new Date(currentBill.due_date).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "2-digit" })}
-                            </span>
+                      {/* Countdown Digital Boxes */}
+                      <div className="flex items-center justify-center gap-3 sm:gap-4 py-2">
+                        {/* Days */}
+                        <div className="flex flex-col items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Days</span>
+                          <div className={`w-16 h-16 sm:w-20 sm:h-20 ${timeLeft?.isOverdue ? "bg-rose-500 shadow-rose-500/20" : "bg-[#00cbab] shadow-[#00cbab]/20"} text-white flex items-center justify-center rounded-2xl text-2xl sm:text-3xl font-black shadow-lg transition-colors`}>
+                            {timeLeft ? String(timeLeft.days).padStart(2, '0') : "00"}
                           </div>
+                        </div>
 
-                          <div className="bg-slate-50/50 dark:bg-slate-900/20 border border-slate-100/60 dark:border-slate-900/80 p-3.5 rounded-2xl">
-                            <span className="text-slate-400 block mb-1">Total Outstanding</span>
-                            <span className="font-black text-slate-900 dark:text-white text-sm block">{formatCurrency(currentBill.amount_due)}</span>
+                        {/* Hours */}
+                        <div className="flex flex-col items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Hours</span>
+                          <div className={`w-16 h-16 sm:w-20 sm:h-20 ${timeLeft?.isOverdue ? "bg-rose-500 shadow-rose-500/20" : "bg-[#00cbab] shadow-[#00cbab]/20"} text-white flex items-center justify-center rounded-2xl text-2xl sm:text-3xl font-black shadow-lg transition-colors`}>
+                            {timeLeft ? String(timeLeft.hours).padStart(2, '0') : "00"}
                           </div>
+                        </div>
 
-                          <div className="bg-slate-50/50 dark:bg-slate-900/20 border border-slate-100/60 dark:border-slate-900/80 p-3.5 rounded-2xl sm:col-span-2">
-                            <span className="text-slate-400 flex items-center gap-1 mb-1">
-                              <CalendarDays className="h-3 w-3" /> Remaining Days
-                            </span>
-                            {(() => {
-                              const days = getRemainingDays(currentBill.due_date);
-                              return (
-                                <span className={`font-bold text-sm block ${days <= 3 ? "text-rose-500" : days <= 7 ? "text-amber-500" : "text-emerald-600 dark:text-emerald-400"}`}>
-                                  {days > 0 ? `${days} day${days !== 1 ? "s" : ""} until due` : days === 0 ? "Due today" : `${Math.abs(days)} day${Math.abs(days) !== 1 ? "s" : ""} overdue`}
-                                </span>
-                              );
-                            })()}
+                        {/* Minutes */}
+                        <div className="flex flex-col items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Minutes</span>
+                          <div className={`w-16 h-16 sm:w-20 sm:h-20 ${timeLeft?.isOverdue ? "bg-rose-500 shadow-rose-500/20" : "bg-[#00cbab] shadow-[#00cbab]/20"} text-white flex items-center justify-center rounded-2xl text-2xl sm:text-3xl font-black shadow-lg transition-colors`}>
+                            {timeLeft ? String(timeLeft.minutes).padStart(2, '0') : "00"}
                           </div>
-                        </>
-                      ) : (
-                        <div className="sm:col-span-2 p-4 text-center border border-dashed rounded-2xl text-slate-400">
-                          No active invoice statement generated for this period.
+                        </div>
+
+                        {/* Seconds */}
+                        <div className="flex flex-col items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Seconds</span>
+                          <div className={`w-16 h-16 sm:w-20 sm:h-20 ${timeLeft?.isOverdue ? "bg-rose-500 shadow-rose-500/20" : "bg-[#00cbab] shadow-[#00cbab]/20"} text-white flex items-center justify-center rounded-2xl text-2xl sm:text-3xl font-black shadow-lg transition-colors`}>
+                            {timeLeft ? String(timeLeft.seconds).padStart(2, '0') : "00"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {timeLeft?.isOverdue && (
+                        <div className="text-center text-xs font-semibold text-rose-500 dark:text-rose-400 animate-pulse">
+                          ⚠️ Subscription Expired! Please purchase load to restore your connection.
+                        </div>
+                      )}
+
+                      {!showRenewal && (
+                        <div className="text-center w-full pt-4 border-t border-slate-100 dark:border-slate-900">
+                          <button
+                            onClick={handleShowRenewal}
+                            className="text-[#00cbab] hover:text-[#00b598] font-black text-sm uppercase tracking-wider hover:underline underline-offset-4 transition-colors"
+                          >
+                            Purchase Load
+                          </button>
                         </div>
                       )}
                     </div>

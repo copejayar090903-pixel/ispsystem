@@ -5,17 +5,22 @@ import {
   BadgeCheck,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Clock,
   CreditCard,
   FileImage,
+  History,
   Info,
   Loader2,
   RefreshCw,
   Search,
   Send,
   Smartphone,
+  User,
   Wifi,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/src/components/admin/status-badge";
 import { Button } from "@/src/components/ui/button";
@@ -36,6 +41,7 @@ type CustomerData = {
   full_name: string;
   pppoe_username: string;
   status: string;
+  due_date: string;
   plans?: CustomerPlan;
 };
 
@@ -54,6 +60,26 @@ type PendingPayment = {
   submitted_at: string;
   amount_paid: number;
   method: string;
+};
+
+type PaymentHistoryBill = {
+  id: string;
+  billing_period_start: string;
+  billing_period_end: string;
+  due_date: string;
+  amount_due: number;
+  paid_at: string | null;
+  billing_month: number;
+  billing_year: number;
+  payments?: Array<{
+    id: string;
+    method: string;
+    reference_number: string | null;
+    amount_paid: number;
+    status: string;
+    submitted_at: string;
+    reviewed_at: string | null;
+  }>;
 };
 
 function getRemainingDays(dueDateStr: string): number {
@@ -78,6 +104,8 @@ export default function CustomerPortalPage() {
   const [customerData, setCustomerData] = useState<CustomerData | null>(null);
   const [currentBill, setCurrentBill] = useState<CurrentBill | null>(null);
   const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
+  const [paymentHistory, setPaymentHistory] = useState<PaymentHistoryBill[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Regular payment
   const [paymentMethod, setPaymentMethod] = useState("gcash");
@@ -92,6 +120,46 @@ export default function CustomerPortalPage() {
   const [renewalName, setRenewalName] = useState("");
   const [renewalRef, setRenewalRef] = useState("");
   const [renewalSubmitting, setRenewalSubmitting] = useState(false);
+
+  const [timeLeft, setTimeLeft] = useState<{
+    days: number;
+    hours: number;
+    minutes: number;
+    seconds: number;
+    isOverdue: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!customerData?.due_date) {
+      setTimeLeft(null);
+      return;
+    }
+
+    const updateTimer = () => {
+      const target = new Date(customerData.due_date).getTime();
+      const now = new Date().getTime();
+      const difference = target - now;
+
+      if (difference < 0) {
+        const absDiff = Math.abs(difference);
+        const d = Math.floor(absDiff / (1000 * 60 * 60 * 24));
+        const h = Math.floor((absDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const m = Math.floor((absDiff % (1000 * 60 * 60)) / (1000 * 60));
+        const s = Math.floor((absDiff % (1000 * 60)) / 1000);
+        setTimeLeft({ days: d, hours: h, minutes: m, seconds: s, isOverdue: true });
+      } else {
+        const d = Math.floor(difference / (1000 * 60 * 60 * 24));
+        const h = Math.floor((difference % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const m = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
+        const s = Math.floor((difference % (1000 * 60)) / 1000);
+        setTimeLeft({ days: d, hours: h, minutes: m, seconds: s, isOverdue: false });
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [customerData?.due_date]);
 
   const isLocked =
     customerData?.status === "suspended" ||
@@ -131,6 +199,7 @@ export default function CustomerPortalPage() {
       setCustomerData(data.customer);
       setCurrentBill(data.currentBill);
       setPendingPayment(data.pendingPayment ?? null);
+      setPaymentHistory(data.paymentHistory ?? []);
       setFound(true);
       setShowRenewal(false);
       setSelectedPlan(null);
@@ -143,6 +212,8 @@ export default function CustomerPortalPage() {
       setCustomerData(null);
       setCurrentBill(null);
       setPendingPayment(null);
+      setPaymentHistory([]);
+      setShowHistory(false);
     } finally {
       setLoading(false);
     }
@@ -257,31 +328,28 @@ export default function CustomerPortalPage() {
           </Card>
         </div>
 
-        <Card className="bg-white/90 shadow-2xl shadow-blue-900/10 backdrop-blur dark:bg-slate-950/90">
-          <CardHeader className="border-b border-slate-100 dark:border-slate-900 flex flex-row items-center justify-between gap-4">
-            <div>
-              <CardTitle>Account Details</CardTitle>
-              <CardDescription>
-                {found && customerData ? `Account for ${customerData.full_name}` : "Search an account number to show details."}
-              </CardDescription>
-            </div>
-            {found && (
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {!showRenewal && (
-                  <Button
-                    size="sm"
-                    className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md shadow-blue-500/20 border-0"
-                    onClick={handleShowRenewal}
-                  >
-                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Renew
-                  </Button>
-                )}
-                <Button variant="outline" size="sm" onClick={() => { setFound(false); setShowRenewal(false); }} className="rounded-xl">
-                  Change
-                </Button>
+        <Card className="bg-white/90 shadow-2xl shadow-blue-900/10 backdrop-blur dark:bg-slate-950/90 overflow-hidden">
+          {found && customerData ? (
+            <CardHeader className="flex flex-row items-center justify-between gap-4 px-6 py-5">
+              <div className="flex flex-col text-left">
+                <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Account Number:</span>
+                <span className="text-lg font-black text-slate-800 dark:text-slate-200 font-mono tracking-wider">{customerData.account_number}</span>
               </div>
-            )}
-          </CardHeader>
+              <Button
+                onClick={() => { setFound(false); setShowRenewal(false); }}
+                className="bg-[#00cbab] hover:bg-[#00b598] text-white font-bold px-5 py-2 rounded-xl text-sm border-0 shadow-md shadow-[#00cbab]/20 transition-all"
+              >
+                Logout
+              </Button>
+            </CardHeader>
+          ) : (
+            <CardHeader className="border-b border-slate-100 dark:border-slate-900 flex flex-row items-center justify-between gap-4">
+              <div>
+                <CardTitle>Account Details</CardTitle>
+                <CardDescription>Search an account number to show details.</CardDescription>
+              </div>
+            </CardHeader>
+          )}
           <CardContent className="space-y-5 pt-6">
 
             {found && customerData ? (
@@ -311,45 +379,69 @@ export default function CustomerPortalPage() {
                     </div>
                   </div>
                 )}
+                {/* S2S Styled Core Dashboard */}
+                <div className="flex flex-col items-center space-y-6 pt-2">
+                  <hr className="w-full border-slate-100 dark:border-slate-800/80" />
 
-                {/* Account info grid */}
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <InfoTile label="Customer Name" value={customerData.full_name} />
-                  <InfoTile label="Account Number" value={customerData.account_number} mono />
-
-                  <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/60">
-                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">Account Status</p>
-                    <StatusBadge status={customerData.status} />
+                  {/* Customer particulars */}
+                  <div className="text-center">
+                    <h3 className="text-xl font-black text-slate-800 dark:text-white leading-tight">{customerData.full_name}</h3>
                   </div>
 
-                  <InfoTile label="Plan" value={customerData.plans?.plan_name ?? "No Plan"} sub={customerData.plans?.speed ? `${customerData.plans.speed} speed` : undefined} />
-                  <InfoTile label="PPPoE Username" value={customerData.pppoe_username} mono />
+                  {/* Internet time left label */}
+                  <div className="text-center font-bold text-slate-600 dark:text-slate-300 text-sm tracking-wide mt-2">
+                    Internet time left
+                  </div>
 
-                  {currentBill ? (
-                    <>
-                      <InfoTile
-                        label="Due Date"
-                        value={new Date(currentBill.due_date).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "2-digit" })}
-                      />
-                      <InfoTile label="Amount Due" value={formatCurrency(currentBill.amount_due)} />
-
-                      <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/60 sm:col-span-2">
-                        <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 flex items-center gap-1 mb-2">
-                          <CalendarDays className="h-3 w-3" /> Remaining Days
-                        </p>
-                        {(() => {
-                          const days = getRemainingDays(currentBill.due_date);
-                          return (
-                            <p className={`font-bold text-sm ${days <= 3 ? "text-rose-500" : days <= 7 ? "text-amber-500" : "text-emerald-600 dark:text-emerald-400"}`}>
-                              {days > 0 ? `${days} day${days !== 1 ? "s" : ""} until due` : days === 0 ? "Due today" : `${Math.abs(days)} day${Math.abs(days) !== 1 ? "s" : ""} overdue`}
-                            </p>
-                          );
-                        })()}
+                  {/* Countdown Digital Boxes */}
+                  <div className="flex items-center justify-center gap-3 sm:gap-4 py-2">
+                    {/* Days */}
+                    <div className="flex flex-col items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Days</span>
+                      <div className={`w-16 h-16 sm:w-20 sm:h-20 ${timeLeft?.isOverdue ? "bg-rose-500 shadow-rose-500/20" : "bg-[#00cbab] shadow-[#00cbab]/20"} text-white flex items-center justify-center rounded-2xl text-2xl sm:text-3xl font-black shadow-lg transition-colors`}>
+                        {timeLeft ? String(timeLeft.days).padStart(2, '0') : "00"}
                       </div>
-                    </>
-                  ) : (
-                    <div className="sm:col-span-2 p-4 text-center border border-dashed rounded-2xl text-slate-400">
-                      No active invoice generated for this account yet.
+                    </div>
+
+                    {/* Hours */}
+                    <div className="flex flex-col items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Hours</span>
+                      <div className={`w-16 h-16 sm:w-20 sm:h-20 ${timeLeft?.isOverdue ? "bg-rose-500 shadow-rose-500/20" : "bg-[#00cbab] shadow-[#00cbab]/20"} text-white flex items-center justify-center rounded-2xl text-2xl sm:text-3xl font-black shadow-lg transition-colors`}>
+                        {timeLeft ? String(timeLeft.hours).padStart(2, '0') : "00"}
+                      </div>
+                    </div>
+
+                    {/* Minutes */}
+                    <div className="flex flex-col items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Minutes</span>
+                      <div className={`w-16 h-16 sm:w-20 sm:h-20 ${timeLeft?.isOverdue ? "bg-rose-500 shadow-rose-500/20" : "bg-[#00cbab] shadow-[#00cbab]/20"} text-white flex items-center justify-center rounded-2xl text-2xl sm:text-3xl font-black shadow-lg transition-colors`}>
+                        {timeLeft ? String(timeLeft.minutes).padStart(2, '0') : "00"}
+                      </div>
+                    </div>
+
+                    {/* Seconds */}
+                    <div className="flex flex-col items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Seconds</span>
+                      <div className={`w-16 h-16 sm:w-20 sm:h-20 ${timeLeft?.isOverdue ? "bg-rose-500 shadow-rose-500/20" : "bg-[#00cbab] shadow-[#00cbab]/20"} text-white flex items-center justify-center rounded-2xl text-2xl sm:text-3xl font-black shadow-lg transition-colors`}>
+                        {timeLeft ? String(timeLeft.seconds).padStart(2, '0') : "00"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {timeLeft?.isOverdue && (
+                    <div className="text-center text-xs font-semibold text-rose-500 dark:text-rose-400 animate-pulse">
+                      ⚠️ Subscription Expired! Please purchase load to restore your connection.
+                    </div>
+                  )}
+
+                  {!showRenewal && (
+                    <div className="text-center w-full pt-4 border-t border-slate-100 dark:border-slate-900">
+                      <button
+                        onClick={handleShowRenewal}
+                        className="text-[#00cbab] hover:text-[#00b598] font-black text-sm uppercase tracking-wider hover:underline underline-offset-4 transition-colors"
+                      >
+                        Purchase Load
+                      </button>
                     </div>
                   )}
                 </div>
@@ -563,6 +655,84 @@ export default function CustomerPortalPage() {
                 {currentBill && currentBill.status === "paid" && (
                   <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-400 p-4 rounded-2xl text-sm font-semibold text-center">
                     ✅ This bill has been paid and verified. Thank you!
+                  </div>
+                )}
+
+                {/* PAYMENT HISTORY */}
+                {paymentHistory.length > 0 && (
+                  <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                    <button
+                      onClick={() => setShowHistory((v) => !v)}
+                      className="w-full flex items-center justify-between px-5 py-4 bg-slate-50 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors"
+                    >
+                      <span className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                        <History className="h-4 w-4 text-blue-500" />
+                        Payment History
+                        <span className="ml-1 inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
+                          {paymentHistory.length}
+                        </span>
+                      </span>
+                      {showHistory ? (
+                        <ChevronUp className="h-4 w-4 text-slate-400" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-slate-400" />
+                      )}
+                    </button>
+
+                    {showHistory && (
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800/60 animate-in fade-in slide-in-from-top-2 duration-200">
+                        {paymentHistory.map((bill) => {
+                          const monthNames = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                          const verifiedPayment = bill.payments?.find((p) => p.status === "verified") ?? bill.payments?.[0];
+                          const paidDate = bill.paid_at
+                            ? new Date(bill.paid_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "2-digit" })
+                            : verifiedPayment?.reviewed_at
+                            ? new Date(verifiedPayment.reviewed_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "2-digit" })
+                            : "—";
+                          const methodLabel: Record<string, string> = {
+                            gcash: "GCash",
+                            maya: "Maya",
+                            bank_transfer: "Bank Transfer",
+                            cash: "Cash",
+                          };
+                          return (
+                            <div key={bill.id} className="px-5 py-4 flex items-start justify-between gap-4 hover:bg-slate-50/60 dark:hover:bg-slate-900/40 transition-colors">
+                              <div className="flex flex-col gap-1 min-w-0">
+                                <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                  {monthNames[bill.billing_month]} {bill.billing_year} Bill
+                                </p>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                  Period: {new Date(bill.paid_at || bill.billing_period_start).toLocaleDateString("en-PH", { month: "short", day: "2-digit", year: "numeric" })} – {new Date(bill.due_date).toLocaleDateString("en-PH", { month: "short", day: "2-digit", year: "numeric" })}
+                                </p>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                                  <CalendarDays className="h-3 w-3" />
+                                  Paid on: <span className="font-semibold text-emerald-600 dark:text-emerald-400 ml-0.5">{paidDate}</span>
+                                </p>
+                                {verifiedPayment?.reference_number && (
+                                  <p className="text-[11px] text-slate-400 font-mono">
+                                    Ref: {verifiedPayment.reference_number}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                                <span className="text-sm font-extrabold text-slate-900 dark:text-white">
+                                  {formatCurrency(Number(bill.amount_due))}
+                                </span>
+                                {verifiedPayment && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-blue-700 dark:text-blue-300 capitalize">
+                                    <CreditCard className="h-2.5 w-2.5" />
+                                    {methodLabel[verifiedPayment.method] ?? verifiedPayment.method}
+                                  </span>
+                                )}
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400">
+                                  ✓ Paid
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </>

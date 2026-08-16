@@ -609,6 +609,18 @@ export default function CustomersPage() {
         header: "PPPoE Username",
         meta: { className: "hidden lg:table-cell" },
       },
+      {
+        accessorKey: "callerId",
+        header: "MAC Address",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs text-slate-600 dark:text-slate-400">
+            {row.original.callerId && row.original.callerId !== "-"
+              ? row.original.callerId
+              : <span className="text-slate-300 dark:text-slate-600">—</span>}
+          </span>
+        ),
+        meta: { className: "hidden xl:table-cell" },
+      },
       { accessorKey: "plan", header: "Plan" },
       { 
         accessorKey: "uptime", 

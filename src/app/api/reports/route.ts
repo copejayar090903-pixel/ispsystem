@@ -206,12 +206,15 @@ export async function GET() {
       currentYear,
     };
 
-    // ─── Recent Paid Bills (detailed) ─────────────────────────────────────
+    // ─── All Paid Bills (detailed) — sorted by paid_at newest first ──────
     const recentPaidBills = bills
       .filter((b: any) => b.status === "paid")
-      .slice(0, 30)
+      .sort((a: any, b_: any) => {
+        const aTime = a.paid_at ? new Date(a.paid_at).getTime() : new Date(a.created_at).getTime();
+        const bTime = b_.paid_at ? new Date(b_.paid_at).getTime() : new Date(b_.created_at).getTime();
+        return bTime - aTime;
+      })
       .map((b: any) => {
-        // Find a matching verified payment for this bill
         const matchingPayment = payments.find(
           (p: any) => p.billing_id === b.id && p.status === "verified"
         );
@@ -225,8 +228,63 @@ export async function GET() {
           due_date: b.due_date,
           method: matchingPayment?.method || "cash",
           amount_paid: matchingPayment?.amount_paid || b.amount_due,
+          reference_number: matchingPayment?.reference_number || null,
         };
       });
+
+    // ─── Customer Payment History (all paid bills grouped by customer) ────
+    const customerHistoryMap: Record<string, {
+      customer: string;
+      account_number: string;
+      bills: Array<{
+        id: string;
+        month: string;
+        billing_period_start: string;
+        billing_period_end: string;
+        paid_at: string | null;
+        due_date: string | null;
+        amount_due: number;
+        amount_paid: number;
+        method: string;
+        reference_number: string | null;
+      }>;
+    }> = {};
+
+    bills
+      .filter((b: any) => b.status === "paid")
+      .sort((a: any, b_: any) => {
+        const aTime = a.paid_at ? new Date(a.paid_at).getTime() : new Date(a.created_at).getTime();
+        const bTime = b_.paid_at ? new Date(b_.paid_at).getTime() : new Date(b_.created_at).getTime();
+        return bTime - aTime;
+      })
+      .forEach((b: any) => {
+        const custId = b.customer_id;
+        const matchingPayment = payments.find(
+          (p: any) => p.billing_id === b.id && p.status === "verified"
+        );
+        if (!customerHistoryMap[custId]) {
+          customerHistoryMap[custId] = {
+            customer: (b.customers as any)?.full_name || "Unknown",
+            account_number: (b.customers as any)?.account_number || "-",
+            bills: [],
+          };
+        }
+        customerHistoryMap[custId].bills.push({
+          id: b.id,
+          month: `${fullMonthNames[(b.billing_month || 1) - 1]} ${b.billing_year}`,
+          billing_period_start: b.billing_period_start,
+          billing_period_end: b.billing_period_end,
+          paid_at: b.paid_at,
+          due_date: b.due_date,
+          amount_due: b.amount_due,
+          amount_paid: matchingPayment?.amount_paid || b.amount_due,
+          method: matchingPayment?.method || "cash",
+          reference_number: matchingPayment?.reference_number || null,
+        });
+      });
+
+    const customerPaymentHistory = Object.values(customerHistoryMap)
+      .sort((a, b_) => a.customer.localeCompare(b_.customer));
 
     return NextResponse.json({
       summary,
@@ -238,6 +296,7 @@ export async function GET() {
       overdueCustomers,
       customerGrowthData,
       recentPaidBills,
+      customerPaymentHistory,
     });
   } catch (error) {
     console.error("[GET Reports Route Error]:", error);

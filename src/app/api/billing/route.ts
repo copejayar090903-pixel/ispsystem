@@ -17,6 +17,7 @@ export async function GET() {
           full_name,
           account_number,
           email,
+          contact_number,
           pppoe_username,
           status,
           plan_id,

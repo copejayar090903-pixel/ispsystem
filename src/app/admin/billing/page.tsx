@@ -22,6 +22,7 @@ import {
   CheckCircle,
   AlertTriangle,
   RefreshCw,
+  MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DataTable } from "@/src/components/admin/data-table";
@@ -48,10 +49,12 @@ type Bill = {
   suspended_at: string | null;
   created_at: string;
   reminder_sent_at: string | null;
+  sms_reminder_sent_at?: string | null;
   customers?: {
     full_name: string;
     account_number: string;
     email?: string | null;
+    contact_number?: string | null;
     pppoe_username: string;
     status: string;
     plans?: {
@@ -98,6 +101,15 @@ export default function BillingPage() {
   const [sendingReminderFor, setSendingReminderFor] = useState<string | null>(null);
   // Confirmation modal state: holds the bill to confirm before sending
   const [confirmBill, setConfirmBill] = useState<Bill | null>(null);
+  const [sendEmailChannel, setSendEmailChannel] = useState(true);
+  const [sendSmsChannel, setSendSmsChannel] = useState(true);
+
+  useEffect(() => {
+    if (confirmBill) {
+      setSendEmailChannel(!!confirmBill.customers?.email);
+      setSendSmsChannel(!!confirmBill.customers?.contact_number && confirmBill.customers?.contact_number !== "-");
+    }
+  }, [confirmBill]);
 
   async function loadBillingData() {
     setLoading(true);
@@ -116,8 +128,10 @@ export default function BillingPage() {
 
   /** Opens the confirmation modal — actual send happens in confirmAndSend() */
   function handleSendReminderForBill(bill: Bill) {
-    if (!bill.customers?.email) {
-      toast.error(`No email on file for ${bill.customers?.full_name ?? "this customer"}. Please update their profile first.`);
+    const hasEmail = !!bill.customers?.email;
+    const hasPhone = !!bill.customers?.contact_number && bill.customers?.contact_number !== "-";
+    if (!hasEmail && !hasPhone) {
+      toast.error(`Neither email nor phone number is on file for ${bill.customers?.full_name ?? "this customer"}. Please update their profile first.`);
       return;
     }
     setConfirmBill(bill);
@@ -127,24 +141,57 @@ export default function BillingPage() {
   async function confirmAndSend() {
     if (!confirmBill) return;
     const bill = confirmBill;
+
+    const selectedChannels: string[] = [];
+    if (sendEmailChannel) selectedChannels.push("email");
+    if (sendSmsChannel) selectedChannels.push("sms");
+
+    if (selectedChannels.length === 0) {
+      toast.error("Please select at least one notification channel.");
+      return;
+    }
+
     setConfirmBill(null);
     setSendingReminderFor(bill.id);
     try {
-      const response = await fetch(`/api/billing/reminders/${bill.id}`, { method: "POST" });
+      const response = await fetch(`/api/billing/reminders/${bill.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channels: selectedChannels }),
+      });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Failed to send reminder.");
-      toast.success(`✅ Reminder sent to ${payload.email}`);
+
+      let msg = "✅ Reminders sent:";
+      if (payload.emailSent) msg += " Email";
+      if (payload.smsSent) msg += (payload.emailSent ? " &" : "") + " SMS";
+      toast.success(msg);
+
       // Optimistically update the bill in state
       setBills((prev) =>
         prev.map((b) =>
-          b.id === bill.id ? { ...b, reminder_sent_at: payload.sentAt } : b
+          b.id === bill.id
+            ? {
+                ...b,
+                reminder_sent_at: payload.emailSent ? payload.sentAt : b.reminder_sent_at,
+                sms_reminder_sent_at: payload.smsSent ? payload.sentAt : b.sms_reminder_sent_at,
+              }
+            : b
         )
       );
       if (selectedBill?.id === bill.id) {
-        setSelectedBill((prev) => prev ? { ...prev, reminder_sent_at: payload.sentAt } : prev);
+        setSelectedBill((prev) =>
+          prev
+            ? {
+                ...prev,
+                reminder_sent_at: payload.emailSent ? payload.sentAt : prev.reminder_sent_at,
+                sms_reminder_sent_at: payload.smsSent ? payload.sentAt : prev.sms_reminder_sent_at,
+              }
+            : prev
+        );
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send reminder email.");
+      toast.error(error instanceof Error ? error.message : "Failed to send reminders.");
     } finally {
       setSendingReminderFor(null);
     }
@@ -156,17 +203,20 @@ export default function BillingPage() {
       const response = await fetch("/api/billing/reminders", { method: "POST" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Failed to send reminders.");
-      if (payload.sent === 0 && payload.skipped === 0) {
-        toast.info(payload.message ?? "No bills are due in 3 days — no reminders sent.");
-      } else if (payload.errorCount > 0) {
-        toast.warning(
-          `Reminders processed: ${payload.sent} sent, ${payload.skipped} skipped, ${payload.errorCount} failed.`
-        );
+
+      const emailSent = payload.email?.sent ?? 0;
+      const smsSent = payload.sms?.sent ?? 0;
+      const emailErrors = payload.email?.errorCount ?? 0;
+      const smsErrors = payload.sms?.errorCount ?? 0;
+
+      if (emailSent === 0 && smsSent === 0) {
+        toast.info("No unpaid bills due in 3 days — no reminders sent.");
       } else {
         toast.success(
-          `✅ ${payload.sent} billing reminder${payload.sent === 1 ? "" : "s"} sent successfully!` +
-          (payload.skipped > 0 ? ` (${payload.skipped} skipped — no email on file)` : "")
+          `✅ Reminders sent: ${emailSent} via Email, ${smsSent} via SMS.` +
+          (emailErrors > 0 || smsErrors > 0 ? ` Errors: ${emailErrors + smsErrors}.` : "")
         );
+        void loadBillingData();
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send billing reminders.");
@@ -235,13 +285,21 @@ export default function BillingPage() {
         cell: ({ row }) => formatCurrency(Number(row.original.amount_due)),
       },
       {
-        id: "billingMonth",
-        header: "Period Month",
-        accessorFn: (row) => `${monthNames[row.billing_month]} ${row.billing_year}`,
-      },
-      {
-        accessorKey: "due_date",
-        header: "Due Date",
+        id: "billingPeriod",
+        header: "Billing Period",
+        cell: ({ row }) => {
+          const b = row.original;
+          const fmt = (d: string | null) =>
+            d ? new Date(d).toLocaleDateString("en-PH", { month: "short", day: "2-digit", year: "numeric" }) : "—";
+          const start = b.status === "paid" && b.paid_at ? b.paid_at : b.billing_period_start;
+          const end   = b.due_date;
+          return (
+            <div className="flex flex-col text-xs leading-tight">
+              <span className="font-semibold text-slate-700 dark:text-slate-200">{fmt(start)}</span>
+              <span className="text-slate-400">→ {fmt(end)}</span>
+            </div>
+          );
+        },
       },
       {
         id: "datePaid",
@@ -259,43 +317,68 @@ export default function BillingPage() {
         cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
       {
-        id: "emailReminder",
-        header: "Email Reminder",
+        id: "reminders",
+        header: "Reminders",
         cell: ({ row }) => {
           const bill = row.original;
-          const sentAt = bill.reminder_sent_at;
+          const emailSent = bill.reminder_sent_at;
+          const smsSent = bill.sms_reminder_sent_at;
           const hasEmail = !!bill.customers?.email;
+          const hasPhone = !!bill.customers?.contact_number && bill.customers?.contact_number !== "-";
           const isSending = sendingReminderFor === bill.id;
           const isPaid = bill.status === "paid";
 
           return (
-            <div className="flex items-center gap-2">
-              {sentAt ? (
-                <span
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-full px-2 py-0.5"
-                  title={`Reminder sent: ${new Date(sentAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}`}
-                >
-                  <MailCheck className="h-3 w-3" />
-                  Sent
-                </span>
-              ) : hasEmail ? (
-                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 dark:text-slate-600">
-                  <MailX className="h-3 w-3" /> Not sent
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-500">
-                  <MailX className="h-3 w-3" /> No email
-                </span>
-              )}
+            <div className="flex items-center gap-2.5">
+              <div className="flex flex-col gap-1 shrink-0">
+                {/* Email indicator */}
+                {emailSent ? (
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-full px-2 py-0.5"
+                    title={`Email sent: ${new Date(emailSent).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}`}
+                  >
+                    <MailCheck className="h-2.5 w-2.5" />
+                    Email
+                  </span>
+                ) : hasEmail ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-400 dark:text-slate-600 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full px-2 py-0.5">
+                    <MailX className="h-2.5 w-2.5" /> Email
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/10 border border-amber-200 dark:border-amber-900/30 rounded-full px-2 py-0.5">
+                    <MailX className="h-2.5 w-2.5" /> No Email
+                  </span>
+                )}
+
+                {/* SMS indicator */}
+                {smsSent ? (
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-700 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-full px-2 py-0.5"
+                    title={`SMS sent: ${new Date(smsSent).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}`}
+                  >
+                    <MessageSquare className="h-2.5 w-2.5 text-sky-600 dark:text-sky-400" />
+                    SMS
+                  </span>
+                ) : hasPhone ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-400 dark:text-slate-600 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full px-2 py-0.5">
+                    <MessageSquare className="h-2.5 w-2.5 text-slate-400 dark:text-slate-600" /> SMS
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/10 border border-amber-200 dark:border-amber-900/30 rounded-full px-2 py-0.5">
+                    <MessageSquare className="h-2.5 w-2.5 text-amber-500" /> No Phone
+                  </span>
+                )}
+              </div>
+
               {!isPaid && (
                 <button
-                  title={!hasEmail ? "No email address on file" : sentAt ? "Re-send reminder" : "Send reminder"}
-                  disabled={isSending || !hasEmail}
+                  title={(!hasEmail && !hasPhone) ? "No email or phone on file" : "Send reminders"}
+                  disabled={isSending || (!hasEmail && !hasPhone)}
                   onClick={(e) => {
                     e.stopPropagation();
                     void handleSendReminderForBill(bill);
                   }}
-                  className="h-7 w-7 inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
                 >
                   {isSending ? (
                     <span className="h-3.5 w-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin inline-block" />
@@ -619,7 +702,11 @@ export default function BillingPage() {
                   <div>
                     <span className="block text-slate-400">Billing Period</span>
                     <span className="font-semibold text-slate-800 dark:text-slate-200">
-                      {selectedBill.billing_period_start} to {selectedBill.billing_period_end}
+                      {selectedBill.status === "paid" && selectedBill.paid_at
+                        ? new Date(selectedBill.paid_at).toLocaleDateString("en-PH", { month: "short", day: "2-digit", year: "numeric" })
+                        : new Date(selectedBill.billing_period_start).toLocaleDateString("en-PH", { month: "short", day: "2-digit", year: "numeric" })}{" "}
+                      to{" "}
+                      {new Date(selectedBill.due_date).toLocaleDateString("en-PH", { month: "short", day: "2-digit", year: "numeric" })}
                     </span>
                   </div>
                   <div>
@@ -659,30 +746,55 @@ export default function BillingPage() {
                 </div>
               </div>
 
-              {/* Email Reminder Status */}
+              {/* Reminders Status */}
               <div className="space-y-3">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Mail className="h-3.5 w-3.5 text-slate-500" />
-                  Email Reminder
+                  <Send className="h-3.5 w-3.5 text-slate-500" />
+                  Notifications & Reminders
                 </h3>
                 <div className="bg-white dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800 rounded-2xl p-4 text-xs space-y-3">
+                  {/* Email row */}
                   <div className="flex justify-between items-center py-1 border-b border-slate-100 dark:border-slate-900">
-                    <span className="text-slate-400">Customer Email</span>
+                    <span className="text-slate-400 flex items-center gap-1"><Mail className="h-3.5 w-3.5" /> Email</span>
                     <span className="font-semibold text-slate-800 dark:text-slate-200">
-                      {selectedBill.customers?.email ?? <span className="text-amber-500 italic">No email on file</span>}
+                      {selectedBill.customers?.email ?? <span className="text-amber-500 italic">No email</span>}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1">
-                    <span className="text-slate-400">Last Reminder Sent</span>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-100 dark:border-slate-900 pb-2">
+                    <span className="text-slate-400">Email Status</span>
                     {selectedBill.reminder_sent_at ? (
                       <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
                         <MailCheck className="h-3.5 w-3.5" />
-                        {new Date(selectedBill.reminder_sent_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}
+                        Sent: {new Date(selectedBill.reminder_sent_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 text-slate-400">
-                        <MailX className="h-3.5 w-3.5" />
-                        Not sent yet
+                        <MailX className="h-3.5 w-3.5" /> Not sent
+                      </span>
+                    )}
+                  </div>
+
+                  {/* SMS row */}
+                  <div className="flex justify-between items-center py-1 border-b border-slate-100 dark:border-slate-900 pt-1">
+                    <span className="text-slate-400 flex items-center gap-1"><MessageSquare className="h-3.5 w-3.5" /> SMS (httpSMS)</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">
+                      {selectedBill.customers?.contact_number && selectedBill.customers.contact_number !== "-" ? (
+                        selectedBill.customers.contact_number
+                      ) : (
+                        <span className="text-amber-500 italic">No contact number</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 pt-1">
+                    <span className="text-slate-400">SMS Status</span>
+                    {selectedBill.sms_reminder_sent_at ? (
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-sky-600 dark:text-sky-400">
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        Sent: {new Date(selectedBill.sms_reminder_sent_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-slate-400">
+                        <MessageSquare className="h-3.5 w-3.5 text-slate-400" /> Not sent
                       </span>
                     )}
                   </div>
@@ -765,23 +877,19 @@ export default function BillingPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={sendingReminderFor === selectedBill.id || !selectedBill.customers?.email}
-                    title={!selectedBill.customers?.email ? "No email on file" : selectedBill.reminder_sent_at ? "Re-send reminder email" : "Send reminder email"}
+                    disabled={sendingReminderFor === selectedBill.id || (!selectedBill.customers?.email && (!selectedBill.customers?.contact_number || selectedBill.customers?.contact_number === "-"))}
+                    title={(!selectedBill.customers?.email && (!selectedBill.customers?.contact_number || selectedBill.customers?.contact_number === "-")) ? "No email or phone on file" : "Send reminders"}
                     onClick={() => void handleSendReminderForBill(selectedBill)}
                     className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950/30"
                   >
                     {sendingReminderFor === selectedBill.id ? (
                       <span className="h-4 w-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin inline-block" />
-                    ) : selectedBill.reminder_sent_at ? (
-                      <MailCheck className="h-4 w-4" />
                     ) : (
-                      <Mail className="h-4 w-4" />
+                      <Send className="h-4 w-4" />
                     )}
                     {sendingReminderFor === selectedBill.id
                       ? "Sending..."
-                      : selectedBill.reminder_sent_at
-                      ? "Re-send Reminder"
-                      : "Send Reminder"}
+                      : "Send Reminders"}
                   </Button>
                 )}
               </div>
@@ -804,7 +912,7 @@ export default function BillingPage() {
           </div>
         </div>
       )}
-      {/* ─── Email Reminder Confirmation Modal ───────────────── */}
+      {/* ─── Email & SMS Reminder Confirmation Modal ───────────────── */}
       {confirmBill && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -825,13 +933,13 @@ export default function BillingPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="h-10 w-10 rounded-xl bg-white/20 flex items-center justify-center">
-                    <Mail className="h-5 w-5 text-white" />
+                    <Send className="h-5 w-5 text-white" />
                   </div>
                   <div>
                     <h2 id="confirm-modal-title" className="text-base font-bold text-white">
                       Send Billing Reminder
                     </h2>
-                    <p className="text-xs text-blue-100 mt-0.5">Review before sending</p>
+                    <p className="text-xs text-blue-100 mt-0.5">Select reminder channels</p>
                   </div>
                 </div>
                 <button
@@ -844,86 +952,116 @@ export default function BillingPage() {
             </div>
 
             {/* Body */}
-            <div className="px-6 py-5 space-y-4">
+            <div className="px-6 py-5 space-y-4 max-h-[80vh] overflow-y-auto">
               {/* Already sent warning */}
-              {confirmBill.reminder_sent_at && (
+              {(confirmBill.reminder_sent_at || confirmBill.sms_reminder_sent_at) && (
                 <div className="flex items-start gap-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
                   <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                  <span>
-                    A reminder was already sent on{" "}
-                    <strong>
-                      {new Date(confirmBill.reminder_sent_at).toLocaleString("en-PH", {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      })}
-                    </strong>
-                    . Sending again will re-notify the customer.
-                  </span>
+                  <div>
+                    <span className="font-semibold block">A reminder has already been sent:</span>
+                    {confirmBill.reminder_sent_at && (
+                      <span className="block mt-0.5">
+                        • Email sent: <strong>{new Date(confirmBill.reminder_sent_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</strong>
+                      </span>
+                    )}
+                    {confirmBill.sms_reminder_sent_at && (
+                      <span className="block mt-0.5">
+                        • SMS sent: <strong>{new Date(confirmBill.sms_reminder_sent_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</strong>
+                      </span>
+                    )}
+                    <span className="block mt-1 font-medium">Re-sending will re-notify the customer.</span>
+                  </div>
                 </div>
               )}
 
               {/* Customer details */}
-              <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden text-sm">
-                <div className="bg-slate-50 dark:bg-slate-800/50 px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Recipient
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden text-xs">
+                <div className="bg-slate-50 dark:bg-slate-800/50 px-4 py-2 font-bold uppercase tracking-wider text-slate-400">
+                  Customer Details
                 </div>
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  <div className="flex justify-between px-4 py-2.5">
-                    <span className="text-slate-500">Customer</span>
+                  <div className="flex justify-between px-4 py-2">
+                    <span className="text-slate-500">Name</span>
                     <span className="font-semibold text-slate-800 dark:text-slate-200">
                       {confirmBill.customers?.full_name ?? "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between px-4 py-2.5">
+                  <div className="flex justify-between px-4 py-2">
                     <span className="text-slate-500">Account #</span>
                     <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
                       {confirmBill.customers?.account_number ?? "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between px-4 py-2.5">
-                    <span className="text-slate-500">Email</span>
-                    <span className="font-semibold text-blue-600 dark:text-blue-400">
-                      {confirmBill.customers?.email ?? "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between px-4 py-2.5">
-                    <span className="text-slate-500">Plan</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">
-                      {confirmBill.customers?.plans?.plan_name ?? "—"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Bill details */}
-              <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden text-sm">
-                <div className="bg-slate-50 dark:bg-slate-800/50 px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Bill Details
-                </div>
-                <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  <div className="flex justify-between px-4 py-2.5">
+                  <div className="flex justify-between px-4 py-2">
                     <span className="text-slate-500">Amount Due</span>
-                    <span className="font-bold text-lg text-slate-900 dark:text-white leading-none">
+                    <span className="font-bold text-slate-900 dark:text-white">
                       {formatCurrency(Number(confirmBill.amount_due))}
                     </span>
                   </div>
-                  <div className="flex justify-between px-4 py-2.5">
+                  <div className="flex justify-between px-4 py-2">
                     <span className="text-slate-500">Due Date</span>
                     <span className="font-semibold text-red-600 dark:text-red-400">
                       {confirmBill.due_date}
                     </span>
                   </div>
-                  <div className="flex justify-between px-4 py-2.5">
-                    <span className="text-slate-500">Status</span>
-                    <StatusBadge status={confirmBill.status} />
-                  </div>
                 </div>
               </div>
 
-              <p className="text-xs text-slate-400 text-center">
-                An email with full payment instructions will be delivered to{" "}
-                <strong className="text-slate-600 dark:text-slate-300">{confirmBill.customers?.email}</strong>.
-              </p>
+              {/* Channel Selector */}
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden text-xs">
+                <div className="bg-slate-50 dark:bg-slate-800/50 px-4 py-2 font-bold uppercase tracking-wider text-slate-400">
+                  Choose Channels to Send
+                </div>
+                <div className="p-4 space-y-4">
+                  {/* Email Channel */}
+                  <label className="flex items-start gap-3 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={sendEmailChannel}
+                      disabled={!confirmBill.customers?.email}
+                      onChange={(e) => setSendEmailChannel(e.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 disabled:opacity-40"
+                    />
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <Mail className="h-3.5 w-3.5 text-slate-500" /> Email Notification
+                      </span>
+                      <span className="text-[11px] text-slate-400 mt-0.5">
+                        {confirmBill.customers?.email ? (
+                          `Deliver to: ${confirmBill.customers.email}`
+                        ) : (
+                          <span className="text-amber-500 italic">No email address on file</span>
+                        )}
+                      </span>
+                    </div>
+                  </label>
+
+                  <div className="border-t border-slate-100 dark:border-slate-800 my-2" />
+
+                  {/* SMS Channel */}
+                  <label className="flex items-start gap-3 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={sendSmsChannel}
+                      disabled={!confirmBill.customers?.contact_number || confirmBill.customers?.contact_number === "-"}
+                      onChange={(e) => setSendSmsChannel(e.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 disabled:opacity-40"
+                    />
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <MessageSquare className="h-3.5 w-3.5 text-slate-500" /> SMS Notification (httpSMS)
+                      </span>
+                      <span className="text-[11px] text-slate-400 mt-0.5">
+                        {confirmBill.customers?.contact_number && confirmBill.customers.contact_number !== "-" ? (
+                          `Deliver to: ${confirmBill.customers.contact_number}`
+                        ) : (
+                          <span className="text-amber-500 italic">No contact number on file</span>
+                        )}
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
             </div>
 
             {/* Footer */}
@@ -938,9 +1076,10 @@ export default function BillingPage() {
               <Button
                 className="flex-1 gap-2 bg-blue-600 hover:bg-blue-700 text-white"
                 onClick={() => void confirmAndSend()}
+                disabled={!sendEmailChannel && !sendSmsChannel}
               >
                 <Send className="h-4 w-4" />
-                Send Email
+                Send Reminder(s)
               </Button>
             </div>
           </div>

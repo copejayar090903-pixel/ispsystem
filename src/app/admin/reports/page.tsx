@@ -10,7 +10,7 @@ import {
   TrendingUp, TrendingDown, Users, AlertTriangle,
   Wallet, BadgePercent, Calendar, FileSpreadsheet, FileText,
   Download, CreditCard, Activity, CheckCircle2, XCircle, Clock, Loader2,
-  DollarSign, ArrowUpRight, ArrowDownRight,
+  DollarSign, ArrowUpRight, ArrowDownRight, Search, History,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/src/components/admin/page-header";
@@ -60,7 +60,24 @@ type ReportData = {
     due_date: string | null;
     method: string;
     amount_paid: number;
+    reference_number: string | null;
   }[];
+  customerPaymentHistory: Array<{
+    customer: string;
+    account_number: string;
+    bills: Array<{
+      id: string;
+      month: string;
+      billing_period_start: string;
+      billing_period_end: string;
+      paid_at: string | null;
+      due_date: string | null;
+      amount_due: number;
+      amount_paid: number;
+      method: string;
+      reference_number: string | null;
+    }>;
+  }>;
 };
 
 // ─── Color Palettes ──────────────────────────────────────────────────────────
@@ -138,6 +155,12 @@ export default function ReportsPage() {
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [historySearch, setHistorySearch] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [billsSearch, setBillsSearch] = useState("");
+  const [billsPage, setBillsPage] = useState(1);
+  const BILLS_PER_PAGE = 50;
 
   useEffect(() => {
     async function fetchReports() {
@@ -807,72 +830,321 @@ export default function ReportsPage() {
         </Card>
       )}
 
-      {/* ─── Recent Paid Bills ────────────────────────────────────────────── */}
+      {/* ─── All Paid Bills ────────────────────────────────────────────────── */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
           <div>
             <CardTitle className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="h-4 w-4" />
-              Recent Paid Bills
+              All Paid Bills
+              <span className="ml-1 inline-flex items-center justify-center h-5 px-2 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
+                {data.recentPaidBills.length}
+              </span>
             </CardTitle>
-            <CardDescription>Latest successfully collected billing statements</CardDescription>
+            <CardDescription>Complete payment history — sorted by date paid (newest first)</CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={() => toast.info("Export queued.")}>
             <FileText className="h-4 w-4" /> Export PDF
           </Button>
         </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-slate-100 dark:border-slate-800">
-                  <th className="py-2.5 px-2 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Customer</th>
-                  <th className="py-2.5 px-2 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Account #</th>
-                  <th className="py-2.5 px-2 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Billing Period</th>
-                  <th className="py-2.5 px-2 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Paid At</th>
-                  <th className="py-2.5 px-2 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Method</th>
-                  <th className="py-2.5 px-2 text-right font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Amount Paid</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.recentPaidBills.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400">No paid bills found. Click "Paid" on a customer to record a payment.</td>
-                  </tr>
-                ) : data.recentPaidBills.map((bill, idx) => (
-                  <tr key={bill.id} className={`border-b border-slate-50 dark:border-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-900/20 transition-colors ${idx % 2 === 0 ? "" : "bg-slate-50/30 dark:bg-slate-900/10"}`}>
-                    <td className="py-2.5 px-2 font-semibold text-slate-900 dark:text-white">{bill.customer}</td>
-                    <td className="py-2.5 px-2 font-mono text-slate-500 dark:text-slate-400">{bill.account_number}</td>
-                    <td className="py-2.5 px-2 text-slate-600 dark:text-slate-400">{bill.month}</td>
-                    <td className="py-2.5 px-2">
-                      {bill.paid_at ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                          {new Date(bill.paid_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                        </span>
-                      ) : "—"}
-                    </td>
-                    <td className="py-2.5 px-2">
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase
-                        ${
-                          bill.method === "gcash" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300" :
-                          bill.method === "maya" ? "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300" :
-                          bill.method === "bank_transfer" ? "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300" :
-                          "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                        }`}
-                      >
-                        {bill.method === "bank_transfer" ? "Bank" : bill.method || "Cash"}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-2 text-right font-black text-emerald-600 dark:text-emerald-400">
-                      {formatCurrency(bill.amount_paid ?? bill.amount_due)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <CardContent className="space-y-4">
+          {/* Search bar */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Filter by customer name, account number, or billing period..."
+              value={billsSearch}
+              onChange={(e) => { setBillsSearch(e.target.value); setBillsPage(1); }}
+              className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+            />
           </div>
+
+          {/* Table */}
+          {(() => {
+            const q = billsSearch.trim().toLowerCase();
+            const filtered = q
+              ? data.recentPaidBills.filter((b) =>
+                  b.customer.toLowerCase().includes(q) ||
+                  b.account_number.includes(q) ||
+                  b.month.toLowerCase().includes(q) ||
+                  (b.reference_number ?? "").toLowerCase().includes(q)
+                )
+              : data.recentPaidBills;
+
+            const totalPages = Math.max(1, Math.ceil(filtered.length / BILLS_PER_PAGE));
+            const safePage = Math.min(billsPage, totalPages);
+            const paginated = filtered.slice((safePage - 1) * BILLS_PER_PAGE, safePage * BILLS_PER_PAGE);
+            const grandTotal = filtered.reduce((s, b) => s + Number(b.amount_paid ?? b.amount_due), 0);
+
+            return (
+              <>
+                <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
+                        <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">#</th>
+                        <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Customer</th>
+                        <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Account #</th>
+                        <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Billing Period</th>
+                        <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Date Paid</th>
+                        <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Method</th>
+                        <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider hidden lg:table-cell">Reference #</th>
+                        <th className="py-2.5 px-3 text-right font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Amount Paid</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginated.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="py-10 text-center text-slate-400">No paid bills match your search.</td>
+                        </tr>
+                      ) : paginated.map((bill, idx) => {
+                        const rowNum = (safePage - 1) * BILLS_PER_PAGE + idx + 1;
+                        return (
+                          <tr key={bill.id} className={`border-b border-slate-50 dark:border-slate-900 hover:bg-emerald-50/30 dark:hover:bg-emerald-500/5 transition-colors ${idx % 2 === 0 ? "" : "bg-slate-50/40 dark:bg-slate-900/20"}`}>
+                            <td className="py-2.5 px-3 text-slate-400 font-mono">{rowNum}</td>
+                            <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white">{bill.customer}</td>
+                            <td className="py-2.5 px-3 font-mono text-slate-500 dark:text-slate-400">{bill.account_number}</td>
+                            <td className="py-2.5 px-3">
+                              <div className="flex flex-col text-xs leading-tight">
+                                <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                  {bill.paid_at ? new Date(bill.paid_at).toLocaleDateString("en-PH", { month: "short", day: "2-digit", year: "numeric" }) : "—"}
+                                </span>
+                                <span className="text-slate-400">
+                                  → {bill.due_date ? new Date(bill.due_date).toLocaleDateString("en-PH", { month: "short", day: "2-digit", year: "numeric" }) : "—"}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              {bill.paid_at ? (
+                                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                                  {new Date(bill.paid_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              ) : "—"}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase
+                                ${
+                                  bill.method === "gcash" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300" :
+                                  bill.method === "maya" ? "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300" :
+                                  bill.method === "bank_transfer" ? "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300" :
+                                  "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                }`}
+                              >
+                                {bill.method === "bank_transfer" ? "Bank" : bill.method || "Cash"}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-slate-400 hidden lg:table-cell">
+                              {bill.reference_number ?? "—"}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-black text-emerald-600 dark:text-emerald-400">
+                              {formatCurrency(Number(bill.amount_paid ?? bill.amount_due))}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    {filtered.length > 0 && (
+                      <tfoot>
+                        <tr className="border-t-2 border-slate-200 dark:border-slate-700 bg-emerald-50/60 dark:bg-emerald-500/5">
+                          <td colSpan={7} className="py-3 px-3 font-black text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
+                            {q ? `${filtered.length} matching record${filtered.length !== 1 ? "s" : ""}` : `${filtered.length} total record${filtered.length !== 1 ? "s" : ""}`}
+                          </td>
+                          <td className="py-3 px-3 text-right font-black text-emerald-700 dark:text-emerald-300">
+                            {formatCurrency(grandTotal)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+
+                {/* Pagination controls */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between gap-3 pt-1">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Showing {(safePage - 1) * BILLS_PER_PAGE + 1}–{Math.min(safePage * BILLS_PER_PAGE, filtered.length)} of {filtered.length} records
+                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        disabled={safePage === 1}
+                        onClick={() => setBillsPage(1)}
+                        className="h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        « First
+                      </button>
+                      <button
+                        disabled={safePage === 1}
+                        onClick={() => setBillsPage((p) => Math.max(1, p - 1))}
+                        className="h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        ‹ Prev
+                      </button>
+                      <span className="h-8 px-3 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center">
+                        {safePage} / {totalPages}
+                      </span>
+                      <button
+                        disabled={safePage === totalPages}
+                        onClick={() => setBillsPage((p) => Math.min(totalPages, p + 1))}
+                        className="h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Next ›
+                      </button>
+                      <button
+                        disabled={safePage === totalPages}
+                        onClick={() => setBillsPage(totalPages)}
+                        className="h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Last »
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </CardContent>
       </Card>
+
+      {/* ─── Customer Payment History ──────────────────────────────────────── */}
+      {data.customerPaymentHistory.length > 0 && (() => {
+        const methodLabels: Record<string, string> = {
+          gcash: "GCash", maya: "Maya", bank_transfer: "Bank Transfer", cash: "Cash",
+        };
+        const methodBadge = (method: string) => (
+          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase
+            ${method === "gcash" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300" :
+              method === "maya" ? "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300" :
+              method === "bank_transfer" ? "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300" :
+              "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}>
+            {methodLabels[method] ?? method}
+          </span>
+        );
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                <History className="h-4 w-4" />
+                Customer Payment History
+                <span className="ml-1 inline-flex items-center justify-center h-5 px-2 rounded-full bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
+                  {data.customerPaymentHistory.length}
+                </span>
+              </CardTitle>
+              <CardDescription>Click any customer row to expand their full payment history</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {data.customerPaymentHistory.map((cust) => {
+                  const totalPaid = cust.bills.reduce((s, b) => s + Number(b.amount_paid), 0);
+                  const isOpen = selectedCustomer === cust.account_number;
+                  return (
+                    <div key={cust.account_number}>
+                      {/* Customer summary row — click to toggle */}
+                      <button
+                        onClick={() => setSelectedCustomer(isOpen ? null : cust.account_number)}
+                        className={`w-full flex items-center justify-between gap-4 px-5 py-3.5 text-left transition-colors ${
+                          isOpen
+                            ? "bg-blue-50 dark:bg-blue-500/10"
+                            : "hover:bg-slate-50/80 dark:hover:bg-slate-900/40"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`h-8 w-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-black ${
+                            isOpen ? "bg-blue-600 text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                          }`}>
+                            {cust.customer.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{cust.customer}</p>
+                            <p className="text-[11px] font-mono text-slate-400 mt-0.5">{cust.account_number}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-6 flex-shrink-0">
+                          <div className="text-right hidden sm:block">
+                            <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Payments</p>
+                            <p className="text-sm font-black text-slate-700 dark:text-slate-200">{cust.bills.length}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Total Paid</p>
+                            <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">{formatCurrency(totalPaid)}</p>
+                          </div>
+                          <Search className={`h-4 w-4 flex-shrink-0 transition-transform duration-200 ${isOpen ? "text-blue-500 rotate-90" : "text-slate-300 dark:text-slate-600"}`} />
+                        </div>
+                      </button>
+
+                      {/* Expanded payment history sub-table */}
+                      {isOpen && (
+                        <div className="border-t border-blue-100 dark:border-blue-500/20 bg-slate-50/60 dark:bg-slate-900/30 animate-in fade-in slide-in-from-top-1 duration-150">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="border-b border-slate-200 dark:border-slate-800">
+                                  <th className="py-2 px-5 text-left font-semibold text-slate-400 uppercase tracking-wider">#</th>
+                                  <th className="py-2 px-5 text-left font-semibold text-slate-400 uppercase tracking-wider">Billing Period</th>
+                                  <th className="py-2 px-5 text-left font-semibold text-slate-400 uppercase tracking-wider">Date Paid</th>
+                                  <th className="py-2 px-5 text-left font-semibold text-slate-400 uppercase tracking-wider">Method</th>
+                                  <th className="py-2 px-5 text-left font-semibold text-slate-400 uppercase tracking-wider hidden md:table-cell">Reference #</th>
+                                  <th className="py-2 px-5 text-right font-semibold text-slate-400 uppercase tracking-wider">Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {cust.bills.map((b, idx) => (
+                                  <tr
+                                    key={b.id}
+                                    className={`border-b border-slate-100 dark:border-slate-800/60 hover:bg-blue-50/40 dark:hover:bg-blue-500/5 transition-colors ${
+                                      idx % 2 === 0 ? "" : "bg-white/60 dark:bg-slate-900/20"
+                                    }`}
+                                  >
+                                    <td className="py-2 px-5 text-slate-400 font-mono">{idx + 1}</td>
+                                    <td className="py-2 px-5">
+                                      <div className="flex flex-col text-xs leading-tight">
+                                        <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                          {b.paid_at ? new Date(b.paid_at).toLocaleDateString("en-PH", { month: "short", day: "2-digit", year: "numeric" }) : "—"}
+                                        </span>
+                                        <span className="text-slate-400">
+                                          → {b.due_date ? new Date(b.due_date).toLocaleDateString("en-PH", { month: "short", day: "2-digit", year: "numeric" }) : "—"}
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td className="py-2 px-5">
+                                      {b.paid_at ? (
+                                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                                          {new Date(b.paid_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "2-digit" })}
+                                        </span>
+                                      ) : "—"}
+                                    </td>
+                                    <td className="py-2 px-5">{methodBadge(b.method)}</td>
+                                    <td className="py-2 px-5 font-mono text-slate-400 hidden md:table-cell">{b.reference_number ?? "—"}</td>
+                                    <td className="py-2 px-5 text-right font-black text-emerald-600 dark:text-emerald-400">
+                                      {formatCurrency(Number(b.amount_paid))}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot>
+                                <tr className="border-t-2 border-slate-200 dark:border-slate-700 bg-blue-50/60 dark:bg-blue-500/5">
+                                  <td colSpan={5} className="py-2.5 px-5 font-black text-slate-600 dark:text-slate-300 text-xs uppercase tracking-wider">
+                                    {cust.bills.length} payment{cust.bills.length !== 1 ? "s" : ""}
+                                  </td>
+                                  <td className="py-2.5 px-5 text-right font-black text-emerald-700 dark:text-emerald-300">
+                                    {formatCurrency(totalPaid)}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
     </>
   );
 }
+
+

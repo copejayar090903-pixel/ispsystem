@@ -12,6 +12,8 @@ export type LogEventType =
   | "enable"
   | "disable"
   | "login"
+  | "sms_sent"
+  | "sms_failed"
   | "system";
 
 export interface WriteLogOptions {
