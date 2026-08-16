@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/src/lib/supabase";
 import {
   changePPPoEProfile,
   disablePPPoE,
+  disconnectPPPoE,
   MikrotikError,
 } from "@/src/lib/mikrotik";
 import { writeLog } from "@/src/lib/activity-log";
@@ -66,6 +67,13 @@ export async function GET(req: NextRequest) {
 
   try {
     const supabase = createSupabaseServerClient();
+    // Fetch the Expired plan ID from the database
+    const { data: plansData } = await supabase
+      .from("plans")
+      .select("id")
+      .eq("speed", EXPIRED_PROFILE)
+      .limit(1);
+    const expiredPlanId = plansData && plansData.length > 0 ? plansData[0].id : null;
 
     // ── 1. Fetch customers whose due_date has passed and aren't suspended yet ──
     const { data: overdueCustomers, error: fetchError } = await supabase
@@ -169,16 +177,29 @@ export async function GET(req: NextRequest) {
           }
         } else {
           // ── OVERDUE (1–5 days past due) ────────────────────────────────────
-          if (customer.status !== "overdue") {
+          // Update status to overdue, and update plan_id to expiredPlanId (if found)
+          const needsDbUpdate = customer.status !== "overdue" || (expiredPlanId && customer.plan_id !== expiredPlanId);
+          if (needsDbUpdate) {
+            const updatePayload: any = { status: "overdue" };
+            if (expiredPlanId) {
+              updatePayload.plan_id = expiredPlanId;
+            }
             await supabase
               .from("customers")
-              .update({ status: "overdue" })
+              .update(updatePayload)
               .eq("id", customer.id);
           }
 
           // Switch MikroTik profile to throttled plan every time (idempotent)
           try {
             await changePPPoEProfile(pppoeUsername, EXPIRED_PROFILE);
+
+            // Disconnect active session to force reconnect with throttled speed immediately
+            try {
+              await disconnectPPPoE(pppoeUsername);
+            } catch (discErr) {
+              console.log(`[DueDateCron] PPPoE session disconnect skipped for ${pppoeUsername} (likely already offline)`);
+            }
           } catch (mikrotikErr) {
             if (
               mikrotikErr instanceof MikrotikError &&
@@ -192,19 +213,19 @@ export async function GET(req: NextRequest) {
             }
           }
 
-          if (customer.status !== "overdue") {
+          if (needsDbUpdate) {
             await writeLog({
               event_type: "status_change",
-              description: `Auto-marked ${customer.full_name} (${pppoeUsername}) as overdue — ${daysOverdue} day(s) past due. Profile set to ${EXPIRED_PROFILE}.`,
+              description: `Auto-marked ${customer.full_name} (${pppoeUsername}) as overdue — ${daysOverdue} day(s) past due. Plan changed to Expired and profile set to ${EXPIRED_PROFILE}.`,
               pppoe_username: pppoeUsername,
               customer_name: customer.full_name,
               metadata: { daysOverdue, previousStatus: customer.status, action: "overdue", profile: EXPIRED_PROFILE },
             });
 
-            console.log(`[DueDateCron] 🟡 Marked overdue: ${pppoeUsername} (${daysOverdue}d overdue).`);
+            console.log(`[DueDateCron] 🟡 Marked overdue & plan expired: ${pppoeUsername} (${daysOverdue}d overdue).`);
             markedOverdue++;
           } else {
-            // Already overdue — ensure profile is still throttled (idempotent)
+            // Already overdue/expired — ensure profile is still throttled (idempotent)
             skipped++;
           }
         }
