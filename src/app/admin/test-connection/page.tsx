@@ -1035,8 +1035,8 @@ export default function ConnectionTestPage() {
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/40 rounded-2xl p-4 flex flex-col gap-1">
                   <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center gap-1"><Timer className="h-3 w-3" /> Schedule</span>
-                  <span className="font-bold text-slate-800 dark:text-white text-sm">{cronStatus?.schedule.hourly ?? "Every hour (0 * * * *)"}</span>
-                  <span className="text-xs text-slate-400">{cronStatus?.schedule.daily ?? "Daily midnight (0 0 * * *)"}</span>
+                  <span className="font-bold text-slate-800 dark:text-white text-sm">{cronStatus?.schedule.daily ?? "Daily midnight (0 0 * * *)"}</span>
+                  <span className="text-xs text-slate-400">Once per day (Hobby Limit)</span>
                 </div>
                 <div className="bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/40 rounded-2xl p-4 flex flex-col gap-1">
                   <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center gap-1"><Clock className="h-3 w-3" /> Suspension After</span>
