@@ -19,6 +19,15 @@ import {
   UserX,
   Wifi,
   XCircle,
+  CalendarClock,
+  PlayCircle,
+  ShieldCheck,
+  ShieldOff,
+  Ban,
+  Hourglass,
+  SkipForward,
+  Info,
+  Timer,
 } from "lucide-react";
 import { PageHeader } from "@/src/components/admin/page-header";
 import { StatusBadge } from "@/src/components/admin/status-badge";
@@ -90,10 +99,94 @@ type DiagnosticsResult = {
   };
 };
 
+type CronCandidate = {
+  id: string;
+  full_name: string;
+  pppoe_username: string;
+  currentStatus: string;
+  due_date: string;
+  daysOverdue: number;
+  paidThisCycle: boolean;
+  projectedAction: "skip_paid" | "skip_not_due" | "mark_overdue" | "suspend" | "already_suspended";
+  plan: string;
+  speed: string;
+};
+
+type CronStatus = {
+  generatedAt: string;
+  cronSecretConfigured: boolean;
+  schedule: {
+    daily: string;
+    hourly: string;
+    suspensionThresholdDays: number;
+  };
+  summary: {
+    totalCustomers: number;
+    willBeAffected: number;
+    skipped: number;
+    notDueYet: number;
+  };
+  willBeAffected: CronCandidate[];
+  skipped: CronCandidate[];
+};
+
+type CronRunResult = {
+  message: string;
+  triggeredAt: string;
+  runAt: string;
+  evaluated: number;
+  overdue: number;
+  suspended: number;
+  skipped: number;
+  errorCount: number;
+  errors: Array<{ pppoe_username: string; error: string }>;
+};
+
 export default function ConnectionTestPage() {
   const [data, setData] = useState<DiagnosticsResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"summary" | "missing" | "orphaned" | "status" | "profiles">("summary");
+  const [activeTab, setActiveTab] = useState<"summary" | "missing" | "orphaned" | "status" | "profiles" | "cron">("summary");
+
+  // Cron state
+  const [cronStatus, setCronStatus] = useState<CronStatus | null>(null);
+  const [cronLoading, setCronLoading] = useState(false);
+  const [cronTriggering, setCronTriggering] = useState(false);
+  const [cronResult, setCronResult] = useState<CronRunResult | null>(null);
+
+  async function fetchCronStatus() {
+    setCronLoading(true);
+    try {
+      const res = await fetch("/api/cron/status", { cache: "no-store" });
+      const payload = await res.json();
+      setCronStatus(payload);
+    } catch (err) {
+      toast.error("Failed to load cron status.");
+      console.error(err);
+    } finally {
+      setCronLoading(false);
+    }
+  }
+
+  async function triggerCronNow() {
+    setCronTriggering(true);
+    setCronResult(null);
+    try {
+      const res = await fetch("/api/cron/trigger", {
+        method: "POST",
+        cache: "no-store",
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error ?? "Trigger failed.");
+      setCronResult(payload);
+      toast.success("Cron job completed successfully.");
+      // Refresh preview after run
+      void fetchCronStatus();
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to trigger cron job.");
+    } finally {
+      setCronTriggering(false);
+    }
+  }
 
   async function runDiagnostics() {
     setLoading(true);
@@ -134,6 +227,12 @@ export default function ConnectionTestPage() {
   useEffect(() => {
     void runDiagnostics();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "cron") {
+      void fetchCronStatus();
+    }
+  }, [activeTab]);
 
   const db = data?.db;
   const mt = data?.mikrotik;
@@ -615,6 +714,17 @@ export default function ConnectionTestPage() {
                   </span>
                 )}
               </button>
+              <button
+                onClick={() => setActiveTab("cron")}
+                className={`py-3 min-w-[120px] text-xs font-semibold uppercase tracking-wider text-center border-b-2 px-4 transition flex items-center justify-center gap-1.5 ${
+                  activeTab === "cron"
+                    ? "border-violet-600 text-violet-600 dark:border-violet-400 dark:text-violet-400 bg-violet-500/5"
+                    : "border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-slate-100"
+                }`}
+              >
+                <CalendarClock className="h-3.5 w-3.5" />
+                Cron Jobs
+              </button>
             </div>
 
             {/* Tab Contents */}
@@ -892,6 +1002,254 @@ export default function ConnectionTestPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+      {/* ──────────────── CRON JOBS TAB ──────────────── */}
+      {activeTab === "cron" && (
+        <div className="space-y-6">
+          {/* Schedule Info Card */}
+          <Card className="overflow-hidden">
+            <CardHeader className="bg-violet-50/60 dark:bg-violet-900/10 border-b border-violet-200/50 dark:border-violet-800/30">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-xl bg-violet-500/10 flex items-center justify-center text-violet-600 dark:text-violet-400">
+                    <CalendarClock className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-sm font-bold">Cron Job Configuration</CardTitle>
+                    <CardDescription>Due-date enforcement schedule &amp; security</CardDescription>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void fetchCronStatus()}
+                  disabled={cronLoading}
+                  className="gap-2"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${cronLoading ? "animate-spin" : ""}`} />
+                  Refresh
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-5">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/40 rounded-2xl p-4 flex flex-col gap-1">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center gap-1"><Timer className="h-3 w-3" /> Schedule</span>
+                  <span className="font-bold text-slate-800 dark:text-white text-sm">{cronStatus?.schedule.hourly ?? "Every hour (0 * * * *)"}</span>
+                  <span className="text-xs text-slate-400">{cronStatus?.schedule.daily ?? "Daily midnight (0 0 * * *)"}</span>
+                </div>
+                <div className="bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/40 rounded-2xl p-4 flex flex-col gap-1">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center gap-1"><Clock className="h-3 w-3" /> Suspension After</span>
+                  <span className="font-bold text-slate-800 dark:text-white text-sm">{cronStatus?.schedule.suspensionThresholdDays ?? 5} days overdue</span>
+                  <span className="text-xs text-slate-400">Then PPPoE is disabled</span>
+                </div>
+                <div className={`rounded-2xl p-4 flex flex-col gap-1 border ${
+                  cronStatus == null
+                    ? "bg-slate-50/70 dark:bg-slate-900/40 border-slate-200/50 dark:border-slate-800/40"
+                    : cronStatus.cronSecretConfigured
+                    ? "bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200/60 dark:border-emerald-700/30"
+                    : "bg-amber-50 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-700/30"
+                }`}>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center gap-1">
+                    {cronStatus?.cronSecretConfigured ? <ShieldCheck className="h-3 w-3 text-emerald-500" /> : <ShieldOff className="h-3 w-3 text-amber-500" />}
+                    CRON_SECRET
+                  </span>
+                  {cronStatus == null ? (
+                    <span className="text-sm font-bold text-slate-400 animate-pulse">Checking...</span>
+                  ) : cronStatus.cronSecretConfigured ? (
+                    <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400">Configured ✓</span>
+                  ) : (
+                    <span className="text-sm font-bold text-amber-700 dark:text-amber-400">Not set — route is unprotected</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Summary counts */}
+              {cronStatus && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                  <div className="bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/40 rounded-2xl p-3 text-center">
+                    <p className="text-2xl font-extrabold text-slate-800 dark:text-white">{cronStatus.summary.totalCustomers}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">Total Customers</p>
+                  </div>
+                  <div className="bg-rose-50 dark:bg-rose-900/10 border border-rose-200/40 dark:border-rose-700/20 rounded-2xl p-3 text-center">
+                    <p className="text-2xl font-extrabold text-rose-600 dark:text-rose-400">{cronStatus.summary.willBeAffected}</p>
+                    <p className="text-[10px] font-bold text-rose-400 uppercase mt-0.5">Will Be Affected</p>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/40 rounded-2xl p-3 text-center">
+                    <p className="text-2xl font-extrabold text-slate-600 dark:text-slate-400">{cronStatus.summary.skipped}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">Skipped</p>
+                  </div>
+                  <div className="bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200/40 dark:border-emerald-700/20 rounded-2xl p-3 text-center">
+                    <p className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">{cronStatus.summary.notDueYet}</p>
+                    <p className="text-[10px] font-bold text-emerald-400 uppercase mt-0.5">Not Due Yet</p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Candidates Preview */}
+          <Card className="overflow-hidden">
+            <CardHeader className="border-b border-slate-200/50 dark:border-slate-800/50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-600 dark:text-rose-400">
+                    <Hourglass className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-sm font-bold">Next Run Preview</CardTitle>
+                    <CardDescription>Customers that will be affected on the next cron run</CardDescription>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => void triggerCronNow()}
+                  disabled={cronTriggering}
+                  className="gap-2 bg-violet-600 hover:bg-violet-700 text-white border-0 shadow-md shadow-violet-500/20"
+                >
+                  {cronTriggering ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <PlayCircle className="h-4 w-4" />
+                  )}
+                  {cronTriggering ? "Running..." : "Run Cron Now"}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {cronLoading ? (
+                <div className="flex items-center justify-center py-16 text-slate-400 gap-3">
+                  <RefreshCw className="h-5 w-5 animate-spin" />
+                  <span className="text-sm">Loading candidate preview...</span>
+                </div>
+              ) : cronStatus && cronStatus.willBeAffected.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                  <CheckCircle2 className="h-10 w-10 text-emerald-400" />
+                  <p className="font-semibold text-slate-600 dark:text-slate-300">No customers to process</p>
+                  <p className="text-xs">All accounts are current or already handled.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-slate-50/50 dark:bg-slate-900/30">
+                        <TableHead className="font-semibold text-xs">#</TableHead>
+                        <TableHead className="font-semibold text-xs">Customer</TableHead>
+                        <TableHead className="font-semibold text-xs">PPPoE</TableHead>
+                        <TableHead className="font-semibold text-xs">Current Status</TableHead>
+                        <TableHead className="font-semibold text-xs">Due Date</TableHead>
+                        <TableHead className="font-semibold text-xs">Days Overdue</TableHead>
+                        <TableHead className="font-semibold text-xs">Projected Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(cronStatus?.willBeAffected ?? []).map((c, idx) => (
+                        <TableRow key={c.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/20">
+                          <TableCell className="text-xs text-slate-400 font-mono">{idx + 1}</TableCell>
+                          <TableCell className="font-medium text-sm">{c.full_name}</TableCell>
+                          <TableCell className="font-mono text-xs text-slate-500">{c.pppoe_username}</TableCell>
+                          <TableCell>
+                            <StatusBadge status={c.currentStatus} />
+                          </TableCell>
+                          <TableCell className="text-xs text-slate-500">
+                            {new Date(c.due_date).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "2-digit" })}
+                          </TableCell>
+                          <TableCell>
+                            <span className={`font-bold text-sm ${
+                              c.daysOverdue > 5 ? "text-rose-600" : c.daysOverdue > 0 ? "text-amber-600" : "text-orange-500"
+                            }`}>
+                              {c.daysOverdue === 0 ? "Today" : `${c.daysOverdue}d`}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            {c.projectedAction === "suspend" ? (
+                              <Badge variant="danger" className="gap-1 text-xs">
+                                <Ban className="h-3 w-3" /> Suspend &amp; Disable PPPoE
+                              </Badge>
+                            ) : (
+                              <Badge variant="warning" className="gap-1 text-xs">
+                                <Hourglass className="h-3 w-3" /> Mark Overdue + Expired-Profile
+                              </Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Run Result */}
+          {cronResult && (
+            <Card className={`overflow-hidden border-2 ${
+              cronResult.errorCount > 0
+                ? "border-amber-400/50 dark:border-amber-600/40"
+                : "border-emerald-400/50 dark:border-emerald-600/40"
+            }`}>
+              <CardHeader className={`border-b ${
+                cronResult.errorCount > 0
+                  ? "bg-amber-50/60 dark:bg-amber-900/10 border-amber-200/50 dark:border-amber-800/30"
+                  : "bg-emerald-50/60 dark:bg-emerald-900/10 border-emerald-200/50 dark:border-emerald-800/30"
+              }`}>
+                <div className="flex items-center gap-3">
+                  <div className={`h-9 w-9 rounded-xl flex items-center justify-center ${
+                    cronResult.errorCount > 0
+                      ? "bg-amber-500/10 text-amber-600"
+                      : "bg-emerald-500/10 text-emerald-600"
+                  }`}>
+                    {cronResult.errorCount > 0 ? <AlertTriangle className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
+                  </div>
+                  <div>
+                    <CardTitle className="text-sm font-bold">Last Cron Run Result</CardTitle>
+                    <CardDescription className="text-xs">
+                      Triggered at {new Date(cronResult.triggeredAt).toLocaleString("en-PH")}
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                  <div className="bg-slate-50 dark:bg-slate-900/40 border border-slate-200/40 dark:border-slate-800/40 rounded-2xl p-3 text-center">
+                    <p className="text-2xl font-extrabold">{cronResult.evaluated}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">Evaluated</p>
+                  </div>
+                  <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200/40 dark:border-amber-700/20 rounded-2xl p-3 text-center">
+                    <p className="text-2xl font-extrabold text-amber-600">{cronResult.overdue}</p>
+                    <p className="text-[10px] font-bold text-amber-400 uppercase mt-0.5">Marked Overdue</p>
+                  </div>
+                  <div className="bg-rose-50 dark:bg-rose-900/10 border border-rose-200/40 dark:border-rose-700/20 rounded-2xl p-3 text-center">
+                    <p className="text-2xl font-extrabold text-rose-600">{cronResult.suspended}</p>
+                    <p className="text-[10px] font-bold text-rose-400 uppercase mt-0.5">Suspended</p>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-900/40 border border-slate-200/40 dark:border-slate-800/40 rounded-2xl p-3 text-center">
+                    <p className="text-2xl font-extrabold text-slate-600">{cronResult.skipped}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">Skipped</p>
+                  </div>
+                </div>
+
+                <p className="text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/30 rounded-xl px-4 py-3 border border-slate-200/40 dark:border-slate-800/30">
+                  {cronResult.message}
+                </p>
+
+                {cronResult.errors.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-xs font-bold text-amber-600 uppercase tracking-wider">Errors ({cronResult.errors.length})</p>
+                    {cronResult.errors.map((e, i) => (
+                      <div key={i} className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-200/50 dark:border-amber-700/20 rounded-xl px-3 py-2">
+                        <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-mono text-xs font-semibold text-amber-700 dark:text-amber-300">{e.pppoe_username}</p>
+                          <p className="text-xs text-amber-600/80 dark:text-amber-400/80">{e.error}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
       )}
     </>
   );
