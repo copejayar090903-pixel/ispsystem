@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/generate-bills",
-      "schedule": "5 0 1 * *"
+      "schedule": "0 0 1 * *"
     },
     {
       "path": "/api/cron/due-date-check",
@@ -10,7 +10,8 @@
     },
     {
       "path": "/api/cron/paid-restore",
-      "schedule": "0 * * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }
+
