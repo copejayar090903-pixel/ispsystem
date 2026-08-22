@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/src/lib/supabase";
-import { enablePPPoE } from "@/src/lib/mikrotik";
+import { sendPaymentConfirmedToCustomer } from "@/src/lib/email";
 
 export const runtime = "nodejs";
 
@@ -20,38 +20,85 @@ export async function POST(
 
     const supabase = createSupabaseServerClient();
 
+    // Fetch full payment, customer, and billing info for the receipt
     const paymentResponse = await supabase
       .from("payments")
-      .select("customer_id, billing_id")
+      .select(`
+        customer_id,
+        billing_id,
+        amount_paid,
+        method,
+        reference_number,
+        customers (
+          full_name,
+          account_number,
+          email,
+          pppoe_username
+        ),
+        bills (
+          billing_period_start,
+          billing_period_end
+        )
+      `)
       .eq("id", paymentId)
       .single();
 
-    const payment = paymentResponse.data as { customer_id: string; billing_id: string } | null;
+    const payment = paymentResponse.data as any;
 
     if (!payment) {
       return NextResponse.json({ error: "Payment not found." }, { status: 404 });
     }
 
-    const customerResponse = await supabase.from("customers").select("pppoe_username").eq("id", payment.customer_id).single();
-    const customer = customerResponse.data as { pppoe_username: string } | null;
-
-    const { error: paymentError } = await supabase.from("payments").update({ status: "verified", reviewed_by: adminId, reviewed_at: new Date().toISOString() }).eq("id", paymentId);
+    const { error: paymentError } = await supabase
+      .from("payments")
+      .update({
+        status: "verified",
+        reviewed_by: adminId,
+        reviewed_at: new Date().toISOString()
+      })
+      .eq("id", paymentId);
 
     if (paymentError) throw paymentError;
 
-    const { error: billError } = await supabase.from("bills").update({ status: "paid", paid_at: new Date().toISOString() }).eq("id", payment.billing_id);
+    const { error: billError } = await supabase
+      .from("bills")
+      .update({
+        status: "paid",
+        paid_at: new Date().toISOString()
+      })
+      .eq("id", payment.billing_id);
 
     if (billError) throw billError;
 
-    if (customer?.pppoe_username) {
+    // Send payment confirmation email to the customer (non-blocking)
+    if (payment.customers?.email) {
       try {
-        await enablePPPoE(customer.pppoe_username);
-      } catch (error) {
-        console.error("Failed to enable PPPoE after payment approval:", error);
+        const cust = payment.customers;
+        const bill = payment.bills;
+        await sendPaymentConfirmedToCustomer({
+          customerName: cust.full_name,
+          customerEmail: cust.email,
+          accountNumber: cust.account_number,
+          pppoeUsername: cust.pppoe_username,
+          amountPaid: Number(payment.amount_paid),
+          method: payment.method,
+          referenceNumber: payment.reference_number,
+          billingPeriod: bill && bill.billing_period_start && bill.billing_period_end
+            ? `${bill.billing_period_start} – ${bill.billing_period_end}`
+            : null,
+          confirmedAt: new Date().toISOString(),
+        });
+      } catch (emailError) {
+        console.error("[Approve Payment] Failed to send payment confirmation email:", emailError);
       }
     }
 
-    return NextResponse.json({ ok: true, message: "Payment approved, bill marked paid, and PPPoE enabled." });
+    // NOTE: MikroTik profile restoration, PPPoE re-enable, customer status → "active",
+    // and due_date update are intentionally NOT done here. The /api/cron/paid-restore
+    // cron (runs hourly) detects the newly paid bill and handles all of that atomically,
+    // preventing duplicate side-effects across the cash-pay, approve, and PayMongo paths.
+
+    return NextResponse.json({ ok: true, message: "Payment approved and bill marked paid. Customer will be restored by the next cron run (within 1 hour)." });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to approve payment." },
@@ -59,3 +106,4 @@ export async function POST(
     );
   }
 }
+

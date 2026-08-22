@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from "./supabase";
 
 export type LogEventType =
   | "auto_expired"
+  | "bill_generated"
   | "payment"
   | "customer_created"
   | "customer_updated"
@@ -15,6 +16,7 @@ export type LogEventType =
   | "sms_sent"
   | "sms_failed"
   | "system";
+
 
 export interface WriteLogOptions {
   event_type: LogEventType;
