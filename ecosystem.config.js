@@ -1,6 +1,6 @@
 // PM2 Ecosystem Configuration for ISP Billing System
 // Run: pm2 start ecosystem.config.js
-// Auto-start on boot: pm2 startup  (then run the command it prints)
+// Auto-start on boot: p m2 startup  (then run the command it prints)
 // Save process list: pm2 save
 
 module.exports = {

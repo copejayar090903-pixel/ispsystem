@@ -135,7 +135,7 @@ export default function CustomerPortalPage() {
     const paymentStatus = params.get("payment");
     const acct = params.get("account");
     if (paymentStatus === "success") {
-      toast.success("Payment successful! Your bill will be updated shortly.");
+      toast.success("Payment successful!  Your bill will be updated shortly.");
       if (acct) setAccountNumber(acct);
     } else if (paymentStatus === "cancelled") {
       toast.error("Payment was cancelled. Please try again.");
@@ -146,7 +146,7 @@ export default function CustomerPortalPage() {
       const clean = window.location.pathname;
       window.history.replaceState({}, "", clean);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -463,159 +463,158 @@ export default function CustomerPortalPage() {
 
                 {/* PURCHASE & RENEWAL FLOW */}
                 <div className="border border-orange-200 dark:border-orange-500/30 rounded-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-3 duration-300">
-                    <div className="bg-gradient-to-r from-orange-500/10 to-rose-500/10 dark:from-orange-500/15 dark:to-rose-500/15 px-5 py-4 border-b border-orange-200 dark:border-orange-500/30">
-                      <p className="font-bold text-orange-900 dark:text-orange-200 flex items-center gap-2">
-                        <RefreshCw className="h-4 w-4 animate-spin-slow" /> Purchase &amp; Renew Plan
-                      </p>
-                      <p className="text-xs text-orange-700/80 dark:text-orange-300/80 mt-1">Select your plan below, then choose to pay online or manually submit proof of payment.</p>
-                    </div>
+                  <div className="bg-gradient-to-r from-orange-500/10 to-rose-500/10 dark:from-orange-500/15 dark:to-rose-500/15 px-5 py-4 border-b border-orange-200 dark:border-orange-500/30">
+                    <p className="font-bold text-orange-900 dark:text-orange-200 flex items-center gap-2">
+                      <RefreshCw className="h-4 w-4 animate-spin-slow" /> Purchase &amp; Renew Plan
+                    </p>
+                    <p className="text-xs text-orange-700/80 dark:text-orange-300/80 mt-1">Select your plan below, then choose to pay online or manually submit proof of payment.</p>
+                  </div>
 
-                    <div className="p-5 space-y-6 bg-white/60 dark:bg-slate-950/60">
-                      {/* Step 1: Plan selection */}
-                      <div className="space-y-3">
-                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold">1</span>
-                          Choose a Plan
-                        </label>
-                        {plansLoading ? (
-                          <div className="flex items-center justify-center py-6">
-                            <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
-                          </div>
-                        ) : (
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            {plans.length === 0 ? (
-                              <p className="text-xs text-slate-400 col-span-2 text-center py-4">No plans available.</p>
-                            ) : (
-                              plans.map((plan) => (
-                                <button
-                                  key={plan.id}
-                                  onClick={() => setSelectedPlan(plan)}
-                                  className={`text-left p-3.5 rounded-2xl border-2 transition-all duration-200 ${
-                                    selectedPlan?.id === plan.id
-                                      ? "border-blue-500 bg-blue-50 dark:bg-blue-500/10"
-                                      : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-300"
+                  <div className="p-5 space-y-6 bg-white/60 dark:bg-slate-950/60">
+                    {/* Step 1: Plan selection */}
+                    <div className="space-y-3">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold">1</span>
+                        Choose a Plan
+                      </label>
+                      {plansLoading ? (
+                        <div className="flex items-center justify-center py-6">
+                          <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+                        </div>
+                      ) : (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {plans.length === 0 ? (
+                            <p className="text-xs text-slate-400 col-span-2 text-center py-4">No plans available.</p>
+                          ) : (
+                            plans.map((plan) => (
+                              <button
+                                key={plan.id}
+                                onClick={() => setSelectedPlan(plan)}
+                                className={`text-left p-3.5 rounded-2xl border-2 transition-all duration-200 ${selectedPlan?.id === plan.id
+                                    ? "border-blue-500 bg-blue-50 dark:bg-blue-500/10"
+                                    : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-300"
                                   }`}
-                                >
-                                  <div className="flex justify-between items-start">
-                                    <div>
-                                      <p className="font-bold text-xs text-slate-900 dark:text-white">{plan.plan_name}</p>
-                                      <p className="text-[10px] text-slate-400 mt-0.5">
-                                        {plan.monthly_fee === 700 ? "30 to 75 Mbps" : plan.speed} speed
-                                      </p>
-                                    </div>
-                                    <div className="text-right">
-                                      <p className="font-extrabold text-sm text-slate-900 dark:text-white">₱{plan.monthly_fee}</p>
-                                      <p className="text-[10px] text-slate-400">/month</p>
-                                    </div>
+                              >
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <p className="font-bold text-xs text-slate-900 dark:text-white">{plan.plan_name}</p>
+                                    <p className="text-[10px] text-slate-400 mt-0.5">
+                                      {plan.monthly_fee === 700 ? "30 to 75 Mbps" : plan.speed} speed
+                                    </p>
                                   </div>
-                                  {selectedPlan?.id === plan.id && (
-                                    <div className="mt-2 flex items-center gap-1 text-[10px] font-semibold text-blue-600 dark:text-blue-400">
-                                      <CheckCircle2 className="h-3 w-3" /> Selected
-                                    </div>
-                                  )}
-                                </button>
-                              ))
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Step 2: Payment options */}
-                      {selectedPlan && (
-                        <div className="space-y-4">
-                          <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold">2</span>
-                            Proceed to Payment
-                          </label>
-
-                          {/* Online checkout via PayMongo */}
-                          <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 dark:border-violet-500/25 dark:from-violet-500/10 dark:to-indigo-500/10 p-4">
-                            <p className="flex items-center gap-2 text-sm font-bold text-violet-900 dark:text-violet-200">
-                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-violet-600 text-white text-[9px] font-extrabold shadow-sm">P</span>
-                              Pay Online via PayMongo (Instant Restoration)
-                            </p>
-                            <p className="mt-1 text-xs leading-5 text-violet-700/80 dark:text-violet-300/80">
-                              Securely pay ₱{selectedPlan.monthly_fee.toLocaleString()} with GCash, Maya, credit/debit card, or e-wallets. Your connection is restored immediately after payment.
-                            </p>
-                            <Button
-                              id="btn-renewal-paymongo"
-                              className="mt-3 w-full h-11 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-semibold shadow-lg shadow-violet-500/20 transition-all"
-                              onClick={() => void handleRenewalPayWithPaymongo()}
-                              disabled={renewalPaymongoLoading}
-                            >
-                              {renewalPaymongoLoading ? (
-                                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Opening checkout…</>
-                              ) : (
-                                <><ExternalLink className="h-4 w-4 mr-2" /> Pay ₱{selectedPlan.monthly_fee.toLocaleString()} via PayMongo</>
-                              )}
-                            </Button>
-                          </div>
-
-                          {/* Divider */}
-                          <div className="flex items-center gap-3 py-1">
-                            <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">or pay manually</span>
-                            <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
-                          </div>
-
-                          {/* Manual payment upload */}
-                          <div className="space-y-4">
-                            <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 dark:border-blue-500/20 dark:bg-blue-500/10">
-                              <p className="flex items-center gap-2 text-sm font-semibold text-blue-950 dark:text-blue-100">
-                                <CreditCard className="h-4 w-4" /> Manual Payment Submission
-                              </p>
-                              <p className="mt-2 text-xs leading-5 text-blue-700 dark:text-blue-300 font-medium">
-                                Pay via GCash, Maya, or bank transfer — then enter your reference number and amount paid below for admin verification.
-                              </p>
-                            </div>
-
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              <div className="flex flex-col gap-1.5">
-                                <label className="text-xs font-semibold text-slate-500">Payment Method</label>
-                                <select
-                                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-slate-900 dark:border-slate-800"
-                                  value={paymentMethod}
-                                  onChange={(e) => setPaymentMethod(e.target.value)}
-                                >
-                                  <option value="gcash">GCash</option>
-                                  <option value="maya">Maya</option>
-                                  <option value="bank_transfer">Bank Transfer</option>
-                                  <option value="cash">Cash</option>
-                                </select>
-                              </div>
-
-                              <div className="flex flex-col gap-1.5">
-                                <label className="text-xs font-semibold text-slate-500">Reference Number</label>
-                                <Input
-                                  placeholder="Ref / Transaction ID"
-                                  value={referenceNumber}
-                                  onChange={(e) => setReferenceNumber(e.target.value)}
-                                />
-                              </div>
-
-                              <div className="flex flex-col gap-1.5 sm:col-span-2">
-                                <label className="text-xs font-semibold text-slate-500">Amount Paid (₱)</label>
-                                <Input
-                                  type="number"
-                                  placeholder={selectedPlan.monthly_fee.toString()}
-                                  value={amountPaid}
-                                  onChange={(e) => setAmountPaid(e.target.value)}
-                                />
-                              </div>
-                            </div>
-
-                            <Button className="w-full h-11" onClick={() => void handleSubmitPayment()} disabled={submitting}>
-                              {submitting ? (
-                                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Submitting...</>
-                              ) : (
-                                <><FileImage className="h-4 w-4 mr-2" /> Submit Manual Payment Proof</>
-                              )}
-                            </Button>
-                          </div>
+                                  <div className="text-right">
+                                    <p className="font-extrabold text-sm text-slate-900 dark:text-white">₱{plan.monthly_fee}</p>
+                                    <p className="text-[10px] text-slate-400">/month</p>
+                                  </div>
+                                </div>
+                                {selectedPlan?.id === plan.id && (
+                                  <div className="mt-2 flex items-center gap-1 text-[10px] font-semibold text-blue-600 dark:text-blue-400">
+                                    <CheckCircle2 className="h-3 w-3" /> Selected
+                                  </div>
+                                )}
+                              </button>
+                            ))
+                          )}
                         </div>
                       )}
                     </div>
+
+                    {/* Step 2: Payment options */}
+                    {selectedPlan && (
+                      <div className="space-y-4">
+                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold">2</span>
+                          Proceed to Payment
+                        </label>
+
+                        {/* Online checkout via PayMongo */}
+                        <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 dark:border-violet-500/25 dark:from-violet-500/10 dark:to-indigo-500/10 p-4">
+                          <p className="flex items-center gap-2 text-sm font-bold text-violet-900 dark:text-violet-200">
+                            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-violet-600 text-white text-[9px] font-extrabold shadow-sm">P</span>
+                            Pay Online via PayMongo (Instant Restoration)
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-violet-700/80 dark:text-violet-300/80">
+                            Securely pay ₱{selectedPlan.monthly_fee.toLocaleString()} with GCash, Maya, credit/debit card, or e-wallets. Your connection is restored immediately after payment.
+                          </p>
+                          <Button
+                            id="btn-renewal-paymongo"
+                            className="mt-3 w-full h-11 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-semibold shadow-lg shadow-violet-500/20 transition-all"
+                            onClick={() => void handleRenewalPayWithPaymongo()}
+                            disabled={renewalPaymongoLoading}
+                          >
+                            {renewalPaymongoLoading ? (
+                              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Opening checkout…</>
+                            ) : (
+                              <><ExternalLink className="h-4 w-4 mr-2" /> Pay ₱{selectedPlan.monthly_fee.toLocaleString()} via PayMongo</>
+                            )}
+                          </Button>
+                        </div>
+
+                        {/* Divider */}
+                        <div className="flex items-center gap-3 py-1">
+                          <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">or pay manually</span>
+                          <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
+                        </div>
+
+                        {/* Manual payment upload */}
+                        <div className="space-y-4">
+                          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 dark:border-blue-500/20 dark:bg-blue-500/10">
+                            <p className="flex items-center gap-2 text-sm font-semibold text-blue-950 dark:text-blue-100">
+                              <CreditCard className="h-4 w-4" /> Manual Payment Submission
+                            </p>
+                            <p className="mt-2 text-xs leading-5 text-blue-700 dark:text-blue-300 font-medium">
+                              Pay via GCash, Maya, or bank transfer — then enter your reference number and amount paid below for admin verification.
+                            </p>
+                          </div>
+
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-xs font-semibold text-slate-500">Payment Method</label>
+                              <select
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-slate-900 dark:border-slate-800"
+                                value={paymentMethod}
+                                onChange={(e) => setPaymentMethod(e.target.value)}
+                              >
+                                <option value="gcash">GCash</option>
+                                <option value="maya">Maya</option>
+                                <option value="bank_transfer">Bank Transfer</option>
+                                <option value="cash">Cash</option>
+                              </select>
+                            </div>
+
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-xs font-semibold text-slate-500">Reference Number</label>
+                              <Input
+                                placeholder="Ref / Transaction ID"
+                                value={referenceNumber}
+                                onChange={(e) => setReferenceNumber(e.target.value)}
+                              />
+                            </div>
+
+                            <div className="flex flex-col gap-1.5 sm:col-span-2">
+                              <label className="text-xs font-semibold text-slate-500">Amount Paid (₱)</label>
+                              <Input
+                                type="number"
+                                placeholder={selectedPlan.monthly_fee.toString()}
+                                value={amountPaid}
+                                onChange={(e) => setAmountPaid(e.target.value)}
+                              />
+                            </div>
+                          </div>
+
+                          <Button className="w-full h-11" onClick={() => void handleSubmitPayment()} disabled={submitting}>
+                            {submitting ? (
+                              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Submitting...</>
+                            ) : (
+                              <><FileImage className="h-4 w-4 mr-2" /> Submit Manual Payment Proof</>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
+                </div>
 
                 {/* Regular payment completed indicator */}
                 {currentBill && currentBill.status === "paid" && (
@@ -653,8 +652,8 @@ export default function CustomerPortalPage() {
                           const paidDate = bill.paid_at
                             ? new Date(bill.paid_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "2-digit" })
                             : verifiedPayment?.reviewed_at
-                            ? new Date(verifiedPayment.reviewed_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "2-digit" })
-                            : "—";
+                              ? new Date(verifiedPayment.reviewed_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "2-digit" })
+                              : "—";
                           const methodLabel: Record<string, string> = {
                             gcash: "GCash",
                             maya: "Maya",
