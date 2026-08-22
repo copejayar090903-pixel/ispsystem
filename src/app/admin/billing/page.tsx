@@ -461,8 +461,8 @@ export default function BillingPage() {
   return (
     <>
       <PageHeader
-        title="Billing"
-        description="Live customer monthly invoice controls, payment turn-around analytics, and cash flow efficiency diagnostics."
+        title="Reminders & Details"
+        description="Live customer subscription status tracking, due-date alert dispatch controls, and collection turnaround health."
         actions={
           <>
             <Button variant="outline" onClick={() => void loadBillingData()} disabled={loading}>
@@ -476,10 +476,6 @@ export default function BillingPage() {
             >
               <Mail className={`h-4 w-4 ${sendingReminders ? "animate-pulse" : ""}`} />
               {sendingReminders ? "Sending..." : "Send Reminders"}
-            </Button>
-            <Button onClick={() => void handleGenerateBills()} disabled={generating || loading} className="gap-2">
-              <FilePlus className="h-4 w-4" />
-              {generating ? "Generating..." : "Generate Bills"}
             </Button>
           </>
         }
@@ -496,10 +492,10 @@ export default function BillingPage() {
         <>
           {/* Status Metric Grid */}
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Summary label="Paid Invoices" value={paidCount} status="paid" />
-            <Summary label="Unpaid Bills" value={unpaidCount} status="unpaid" />
-            <Summary label="Overdue Bills" value={overdueCount} status="overdue" />
-            <Summary label="Suspended Bills" value={suspendedCount} status="suspended" />
+            <Summary label="Active Subscriptions" value={paidCount} status="paid" />
+            <Summary label="Pending Due" value={unpaidCount} status="unpaid" />
+            <Summary label="Overdue Accounts" value={overdueCount} status="overdue" />
+            <Summary label="Suspended Accounts" value={suspendedCount} status="suspended" />
           </section>
 
           {/* Data Analysis and Insights Panels */}
@@ -638,23 +634,23 @@ export default function BillingPage() {
           {/* Billing Records Grid */}
           <Card>
             <CardHeader>
-              <CardTitle>Billing Records</CardTitle>
+              <CardTitle>Customer Due Dates & Reminders</CardTitle>
               <CardDescription>
-                Live database invoice registry. Click 'Details' to view monthly payment receipts and customer PPPoE credentials.
+                Live subscriber due-date registry. Click 'Details' to view payment history logs, PPPoE status, and dispatch reminders.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <DataTable
                 columns={columns}
                 data={bills}
-                searchPlaceholder="Search billing records..."
+                searchPlaceholder="Search customers..."
               />
             </CardContent>
           </Card>
         </>
       )}
 
-      {/* Slide-out Invoice Details Drawer */}
+      {/* Slide-out Customer Details Drawer */}
       {selectedBill && (
         <div className="fixed inset-0 z-50 overflow-hidden flex justify-end" aria-modal="true" role="dialog">
           {/* Overlay */}

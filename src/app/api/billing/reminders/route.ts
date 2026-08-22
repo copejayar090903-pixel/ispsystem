@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/src/lib/supabase";
 import { sendBillingReminder, type BillingReminderPayload } from "@/src/lib/brevo";
-import {
-  sendBillingReminderSms,
-  type BillingReminderSmsPayload,
-} from "@/src/lib/httpsms";
+import { sendBillingReminderSms, type BillingReminderSmsPayload } from "@/src/lib/httpsms";
 import { writeLog } from "@/src/lib/activity-log";
 
 export const runtime = "nodejs";
@@ -14,18 +11,7 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-/**
- * POST /api/billing/reminders
- *
- * Finds all unpaid bills with a due date exactly 3 days from today
- * and sends billing reminder emails via Brevo + SMS via httpSMS.
- *
- * Optionally protected by a secret token:
- *   POST /api/billing/reminders?secret=YOUR_SECRET
- *   or set REMINDER_CRON_SECRET=... in .env (leave empty to disable protection)
- */
 export async function POST(req: NextRequest) {
-  // ── Optional cron secret protection ─────────────────────────────────────────
   const cronSecret = process.env.REMINDER_CRON_SECRET;
   if (cronSecret && cronSecret !== "change_this_to_a_random_secret") {
     const providedSecret =
@@ -37,76 +23,70 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Calculate target due date (today + 3 days) ────────────────────────────
   const today = new Date();
   const targetDate = new Date(today);
   targetDate.setDate(today.getDate() + 3);
 
-  // Format as YYYY-MM-DD for Supabase comparison
-  const targetDateStr = targetDate.toISOString().split("T")[0];
+  const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0)).toISOString();
+  const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999)).toISOString();
 
   try {
     const supabase = createSupabaseServerClient();
 
-    // ── Query unpaid bills due in 3 days ────────────────────────────────────
-    const { data: bills, error } = await supabase
-      .from("bills")
+    // Query active/overdue customers whose due_date is in exactly 3 days
+    const { data: customers, error } = await supabase
+      .from("customers")
       .select(`
         id,
-        billing_year,
-        billing_month,
-        billing_period_start,
-        billing_period_end,
+        full_name,
+        account_number,
+        email,
+        contact_number,
+        pppoe_username,
         due_date,
-        amount_due,
         status,
-        customers (
-          id,
-          full_name,
-          account_number,
-          email,
-          contact_number,
-          pppoe_username,
-          plans (
-            plan_name,
-            speed
-          )
+        plans (
+          plan_name,
+          speed,
+          monthly_fee
         )
       `)
-      .in("status", ["unpaid", "overdue"])
-      .eq("due_date", targetDateStr);
+      .in("status", ["active", "overdue"])
+      .gte("due_date", startOfDay)
+      .lte("due_date", endOfDay);
 
     if (error) throw error;
 
-    if (!bills || bills.length === 0) {
+    const targetDateStr = startOfDay.split("T")[0];
+
+    if (!customers || customers.length === 0) {
       return NextResponse.json({
-        message: `No unpaid bills due on ${targetDateStr}. No reminders sent.`,
+        message: `No customers due on ${targetDateStr}. No reminders sent.`,
         targetDate: targetDateStr,
         email: { sent: 0, skipped: 0, errors: [] },
         sms: { sent: 0, skipped: 0, errors: [] },
       });
     }
 
-    // ── Send reminder for each eligible bill ────────────────────────────────
     let emailSent = 0;
     let emailSkipped = 0;
-    const emailErrors: Array<{ billId: string; customerName: string; error: string }> = [];
+    const emailErrors: Array<{ customerId: string; customerName: string; error: string }> = [];
 
     let smsSent = 0;
     let smsSkipped = 0;
-    const smsErrors: Array<{ billId: string; customerName: string; error: string }> = [];
+    const smsErrors: Array<{ customerId: string; customerName: string; error: string }> = [];
 
-    for (const bill of bills) {
-      const customer = bill.customers as any;
-
-      if (!customer) {
-        emailSkipped++;
-        smsSkipped++;
-        continue;
-      }
-
+    for (const customer of customers) {
       const plan = customer.plans as any;
       const customerName = customer.full_name ?? "Valued Customer";
+      const dueDateObj = new Date(customer.due_date);
+      const amountDue = Number(plan?.monthly_fee ?? 0);
+
+      const periodStart = new Date(dueDateObj.getTime() - 30 * 24 * 60 * 60 * 1000).toLocaleDateString("en-PH");
+      const periodEnd = dueDateObj.toLocaleDateString("en-PH");
+
+      let emailSentForThisCustomer = false;
+      let smsSentForThisCustomer = false;
 
       // ── Email Reminder ──────────────────────────────────────────────────
       if (customer.email) {
@@ -117,34 +97,30 @@ export async function POST(req: NextRequest) {
           pppoeUsername: customer.pppoe_username ?? "N/A",
           planName: plan?.plan_name ?? "Standard Plan",
           planSpeed: plan?.speed ?? "N/A",
-          amountDue: Number(bill.amount_due),
-          billingPeriodStart: bill.billing_period_start ?? "N/A",
-          billingPeriodEnd: bill.billing_period_end ?? "N/A",
-          dueDate: bill.due_date ?? targetDateStr,
-          billingMonth: MONTH_NAMES[bill.billing_month] ?? "N/A",
-          billingYear: bill.billing_year,
+          amountDue,
+          billingPeriodStart: periodStart,
+          billingPeriodEnd: periodEnd,
+          dueDate: periodEnd,
+          billingMonth: MONTH_NAMES[dueDateObj.getMonth() + 1] ?? "N/A",
+          billingYear: dueDateObj.getFullYear(),
         };
 
         try {
           await sendBillingReminder(emailPayload);
           emailSent++;
-          console.log(
-            `[Billing Reminder] ✅ Email sent to ${customer.email} (Account: ${customer.account_number})`
-          );
+          emailSentForThisCustomer = true;
+          console.log(`[Billing Reminder] ✅ Email sent to ${customer.email}`);
         } catch (emailError: any) {
           const errMsg = emailError instanceof Error ? emailError.message : String(emailError);
           emailErrors.push({
-            billId: bill.id,
+            customerId: customer.id,
             customerName,
             error: errMsg,
           });
-          console.error(
-            `[Billing Reminder] ❌ Email failed for ${customer.email}: ${errMsg}`
-          );
+          console.error(`[Billing Reminder] ❌ Email failed for ${customer.email}: ${errMsg}`);
         }
       } else {
         emailSkipped++;
-        console.warn(`[Billing Reminder] ⏭ Skipped email for bill ${bill.id}: no email address.`);
       }
 
       // ── SMS Reminder via httpSMS ────────────────────────────────────────
@@ -155,8 +131,8 @@ export async function POST(req: NextRequest) {
           accountNumber: customer.account_number ?? "N/A",
           planName: plan?.plan_name ?? "Standard Plan",
           planSpeed: plan?.speed ?? "N/A",
-          amountDue: Number(bill.amount_due),
-          dueDate: bill.due_date ?? targetDateStr,
+          amountDue,
+          dueDate: periodEnd,
         };
 
         try {
@@ -164,72 +140,72 @@ export async function POST(req: NextRequest) {
 
           if (smsResult.success) {
             smsSent++;
-            console.log(
-              `[Billing Reminder] ✅ SMS sent to ${customer.contact_number} (Account: ${customer.account_number})`
-            );
+            smsSentForThisCustomer = true;
+            console.log(`[Billing Reminder] ✅ SMS sent to ${customer.contact_number}`);
 
             await writeLog({
               event_type: "sms_sent",
-              description: `SMS billing reminder sent to ${customerName} (${customer.contact_number}) — ${bill.due_date}`,
+              description: `SMS billing reminder sent to ${customerName} (${customer.contact_number}) — ${periodEnd}`,
               pppoe_username: customer.pppoe_username,
               customer_name: customerName,
               metadata: {
                 messageId: smsResult.messageId,
                 contactNumber: customer.contact_number,
-                amountDue: bill.amount_due,
-                dueDate: bill.due_date,
+                amountDue,
+                dueDate: periodEnd,
               },
             });
           } else {
+            const smsErrMsg = smsResult.error ?? "Unknown SMS error";
             smsErrors.push({
-              billId: bill.id,
+              customerId: customer.id,
               customerName,
-              error: smsResult.error ?? "Unknown SMS error",
+              error: smsErrMsg,
             });
-            console.error(
-              `[Billing Reminder] ❌ SMS failed for ${customer.contact_number}: ${smsResult.error}`
-            );
+            console.error(`[Billing Reminder] ❌ SMS failed for ${customer.contact_number}: ${smsErrMsg}`);
 
             await writeLog({
               event_type: "sms_failed",
-              description: `SMS billing reminder failed for ${customerName} (${customer.contact_number}): ${smsResult.error}`,
+              description: `SMS billing reminder failed for ${customerName} (${customer.contact_number}): ${smsErrMsg}`,
               pppoe_username: customer.pppoe_username,
               customer_name: customerName,
               metadata: {
                 contactNumber: customer.contact_number,
-                error: smsResult.error,
+                error: smsErrMsg,
               },
             });
           }
         } catch (smsError: any) {
           const errMsg = smsError instanceof Error ? smsError.message : String(smsError);
           smsErrors.push({
-            billId: bill.id,
+            customerId: customer.id,
             customerName,
             error: errMsg,
           });
-          console.error(
-            `[Billing Reminder] ❌ SMS exception for ${customer.contact_number}: ${errMsg}`
-          );
+          console.error(`[Billing Reminder] ❌ SMS exception for ${customer.contact_number}: ${errMsg}`);
         }
       } else {
         smsSkipped++;
-        console.warn(`[Billing Reminder] ⏭ Skipped SMS for bill ${bill.id}: no contact number.`);
       }
 
-      // ── Stamp reminder_sent_at if at least one channel succeeded ────────
-      if (emailSent > 0 || smsSent > 0) {
+      // ── Stamp reminder timestamps if any sent successfully ────────
+      const updates: Record<string, string> = {};
+      const sentTime = new Date().toISOString();
+      if (emailSentForThisCustomer) updates.reminder_sent_at = sentTime;
+      if (smsSentForThisCustomer) updates.sms_reminder_sent_at = sentTime;
+
+      if (Object.keys(updates).length > 0) {
         await supabase
-          .from("bills")
-          .update({ reminder_sent_at: new Date().toISOString() })
-          .eq("id", bill.id);
+          .from("customers")
+          .update(updates)
+          .eq("id", customer.id);
       }
     }
 
     return NextResponse.json({
       message: `Billing reminders processed for ${targetDateStr}.`,
       targetDate: targetDateStr,
-      totalEligible: bills.length,
+      totalEligible: customers.length,
       email: {
         sent: emailSent,
         skipped: emailSkipped,
@@ -252,12 +228,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/**
- * GET /api/billing/reminders
- *
- * Preview which bills would get a reminder if sent today.
- * Useful for testing without actually sending emails or SMS.
- */
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.REMINDER_CRON_SECRET;
   if (cronSecret && cronSecret !== "change_this_to_a_random_secret") {
@@ -272,47 +242,50 @@ export async function GET(req: NextRequest) {
   const today = new Date();
   const targetDate = new Date(today);
   targetDate.setDate(today.getDate() + 3);
-  const targetDateStr = targetDate.toISOString().split("T")[0];
+
+  const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0)).toISOString();
+  const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999)).toISOString();
 
   try {
     const supabase = createSupabaseServerClient();
 
-    const { data: bills, error } = await supabase
-      .from("bills")
+    const { data: customers, error } = await supabase
+      .from("customers")
       .select(`
         id,
-        billing_year,
-        billing_month,
+        full_name,
+        account_number,
+        email,
+        contact_number,
         due_date,
-        amount_due,
         status,
-        customers (
-          full_name,
-          account_number,
-          email,
-          contact_number
+        plans (
+          monthly_fee
         )
       `)
-      .in("status", ["unpaid", "overdue"])
-      .eq("due_date", targetDateStr);
+      .in("status", ["active", "overdue"])
+      .gte("due_date", startOfDay)
+      .lte("due_date", endOfDay);
 
     if (error) throw error;
 
-    const preview = (bills ?? []).map((b) => {
-      const c = b.customers as any;
+    const preview = (customers ?? []).map((c) => {
+      const plan = c.plans as any;
       return {
-        billId: b.id,
-        customerName: c?.full_name ?? "N/A",
-        accountNumber: c?.account_number ?? "N/A",
-        email: c?.email ?? null,
-        contactNumber: c?.contact_number ?? null,
-        hasEmail: !!c?.email,
-        hasPhone: !!c?.contact_number && c?.contact_number !== "-",
-        amountDue: b.amount_due,
-        dueDate: b.due_date,
-        status: b.status,
+        billId: c.id,
+        customerName: c.full_name ?? "N/A",
+        accountNumber: c.account_number ?? "N/A",
+        email: c.email ?? null,
+        contactNumber: c.contact_number ?? null,
+        hasEmail: !!c.email,
+        hasPhone: !!c.contact_number && c.contact_number !== "-",
+        amountDue: plan?.monthly_fee ?? 0,
+        dueDate: c.due_date ? c.due_date.split("T")[0] : "-",
+        status: c.status,
       };
     });
+
+    const targetDateStr = startOfDay.split("T")[0];
 
     return NextResponse.json({
       targetDate: targetDateStr,

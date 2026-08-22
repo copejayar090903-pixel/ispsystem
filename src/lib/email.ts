@@ -34,6 +34,25 @@ function createResendClient(): Resend {
   return new Resend(apiKey);
 }
 
+/**
+ * Resolves the Resend sender name and email from environment variables,
+ * ensuring the sender email is formatted correctly (e.g. alerts@domain.com if only domain is provided).
+ */
+function getResendSender(): string {
+  const senderName = process.env.RESEND_SENDER_NAME?.trim() || "ISP Billing System";
+  let senderEmail = process.env.RESEND_SENDER_EMAIL?.trim() || "onboarding@resend.dev";
+
+  if (!senderEmail.includes("@")) {
+    if (senderEmail.includes(".")) {
+      senderEmail = `alerts@${senderEmail}`;
+    } else {
+      senderEmail = "onboarding@resend.dev";
+    }
+  }
+
+  return `${senderName} <${senderEmail}>`;
+}
+
 // ─── Currency Formatter ───────────────────────────────────────────────────────
 
 function formatPHP(amount: number): string {
@@ -297,11 +316,8 @@ This is an automated billing reminder. Please do not reply to this email.`;
 export async function sendBillingReminder(data: BillingReminderPayload): Promise<void> {
   const client = createResendClient();
 
-  const senderEmail = process.env.RESEND_SENDER_EMAIL ?? "onboarding@resend.dev";
-  const senderName  = process.env.RESEND_SENDER_NAME  ?? "ISP Billing System";
-
   const { error } = await client.emails.send({
-    from: `${senderName} <${senderEmail}>`,
+    from: getResendSender(),
     to: [data.customerEmail],
     subject: `⚠️ Billing Reminder: ${formatPHP(data.amountDue)} due on ${data.dueDate} — Acct #${data.accountNumber}`,
     html: buildReminderEmailHtml(data),
@@ -454,8 +470,6 @@ export async function sendPaymentSubmittedToOwner(data: PaymentSubmittedPayload)
   }
 
   const client      = createResendClient();
-  const senderEmail = process.env.RESEND_SENDER_EMAIL ?? "onboarding@resend.dev";
-  const senderName  = process.env.RESEND_SENDER_NAME  ?? "ISP Billing System";
   const appUrl      = data.adminUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
   // Generate signed URLs for one-click approve/reject
@@ -464,7 +478,7 @@ export async function sendPaymentSubmittedToOwner(data: PaymentSubmittedPayload)
   const rejectUrl  = `${appUrl}/api/payments/email-action?id=${data.paymentId}&action=reject&token=${token}`;
 
   const { error } = await client.emails.send({
-    from:    `${senderName} <${senderEmail}>`,
+    from:    getResendSender(),
     to:      [ownerEmail],
     subject: `💳 New Payment Submitted — Acct #${data.accountNumber} (${formatPHP(data.amountPaid)})`,
     html:    buildPaymentSubmittedHtml(data, approveUrl, rejectUrl),
@@ -631,11 +645,9 @@ This is an automated receipt. Please do not reply to this email.`;
  */
 export async function sendPaymentConfirmedToCustomer(data: PaymentConfirmedPayload): Promise<void> {
   const client      = createResendClient();
-  const senderEmail = process.env.RESEND_SENDER_EMAIL ?? "onboarding@resend.dev";
-  const senderName  = process.env.RESEND_SENDER_NAME  ?? "ISP Billing System";
 
   const { error } = await client.emails.send({
-    from:    `${senderName} <${senderEmail}>`,
+    from:    getResendSender(),
     to:      [data.customerEmail],
     subject: `✅ Payment Confirmed — Acct #${data.accountNumber} (${formatPHP(data.amountPaid)})`,
     html:    buildPaymentConfirmedHtml(data),
@@ -828,11 +840,9 @@ This is an automated notification. Please do not reply to this email.`;
  */
 export async function sendPaymentRejectedToCustomer(data: PaymentRejectedPayload): Promise<void> {
   const client      = createResendClient();
-  const senderEmail = process.env.RESEND_SENDER_EMAIL ?? "onboarding@resend.dev";
-  const senderName  = process.env.RESEND_SENDER_NAME  ?? "ISP Billing System";
 
   const { error } = await client.emails.send({
-    from:    `${senderName} <${senderEmail}>`,
+    from:    getResendSender(),
     to:      [data.customerEmail],
     subject: `❌ Payment Not Verified — Acct #${data.accountNumber}`,
     html:    buildPaymentRejectedHtml(data),

@@ -149,9 +149,13 @@ async function handlePaymentPaid(event: any) {
     }
   }
 
+  // Immediately restore customer status & MikroTik profile upon PayMongo payment
+  const { restoreCustomer } = await import("@/src/lib/customer-service");
+  await restoreCustomer(customerId);
+
   const type = isRenewal ? "Renewal" : "Regular payment";
   console.log(
-    `[PayMongo Webhook] ✅ ${type} processed – Bill ${billId || "N/A"} marked as paid. ` +
+    `[PayMongo Webhook] ✅ ${type} processed – Customer ${customerId} active. ` +
       `Amount: PHP ${amountPaid}, PayMongo ID: ${paymentId}`
   );
 }

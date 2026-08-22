@@ -7,26 +7,16 @@ export async function GET() {
   try {
     const supabase = createSupabaseServerClient();
 
-    // Query all bills with relations
-    const { data: bills, error: billsError } = await supabase
-      .from("bills")
+    // Query all customers with plan details and their payment records
+    const { data: customers, error: customersError } = await supabase
+      .from("customers")
       .select(`
         *,
-        customers (
+        plans (
           id,
-          full_name,
-          account_number,
-          email,
-          contact_number,
-          pppoe_username,
-          status,
-          plan_id,
-          plans (
-            id,
-            plan_name,
-            speed,
-            monthly_fee
-          )
+          plan_name,
+          speed,
+          monthly_fee
         ),
         payments (
           id,
@@ -38,17 +28,52 @@ export async function GET() {
           reviewed_at
         )
       `)
-      .order("billing_year", { ascending: false })
-      .order("billing_month", { ascending: false })
-      .order("created_at", { ascending: false });
+      .order("due_date", { ascending: true });
 
-    if (billsError) throw billsError;
+    if (customersError) throw customersError;
 
-    // 4. Calculate Billing Analytics
-    const analytics = computeBillingAnalytics(bills || []);
+    // Map customers to legacy bill structure to keep full frontend compatibility
+    const bills = (customers || []).map((customer) => {
+      const year = customer.due_date ? new Date(customer.due_date).getFullYear() : new Date().getFullYear();
+      const month = customer.due_date ? new Date(customer.due_date).getMonth() + 1 : new Date().getMonth() + 1;
+      const periodStart = customer.due_date 
+        ? new Date(new Date(customer.due_date).getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+        : new Date().toISOString();
+      const periodEnd = customer.due_date ?? new Date().toISOString();
+
+      return {
+        id: customer.id,
+        customer_id: customer.id,
+        billing_year: year,
+        billing_month: month,
+        billing_period_start: periodStart,
+        billing_period_end: periodEnd,
+        due_date: customer.due_date ? customer.due_date.split("T")[0] : "-",
+        amount_due: customer.plans?.monthly_fee ?? 0,
+        status: customer.status === "active" ? "paid" : customer.status === "suspended" ? "suspended" : "unpaid",
+        paid_at: customer.status === "active" ? customer.due_date : null,
+        suspended_at: customer.status === "suspended" ? customer.due_date : null,
+        created_at: customer.created_at,
+        reminder_sent_at: customer.reminder_sent_at,
+        sms_reminder_sent_at: customer.sms_reminder_sent_at,
+        customers: {
+          full_name: customer.full_name,
+          account_number: customer.account_number,
+          email: customer.email,
+          contact_number: customer.contact_number,
+          pppoe_username: customer.pppoe_username,
+          status: customer.status,
+          plans: customer.plans
+        },
+        payments: customer.payments || []
+      };
+    });
+
+    // Calculate Billing Analytics based on active/inactive subscription fees
+    const analytics = computeBillingAnalytics(bills);
 
     return NextResponse.json({
-      bills: bills || [],
+      bills,
       analytics,
     });
   } catch (error: any) {

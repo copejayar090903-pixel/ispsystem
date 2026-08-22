@@ -19,6 +19,7 @@ import {
   X,
   ScrollText,
   GitFork,
+  Bell,
 } from "lucide-react";
 import { useState, useEffect, type ReactNode } from "react";
 import { cn } from "@/src/lib/utils";
@@ -37,7 +38,7 @@ const sidebarItems: SidebarItem[] = [
   { href: "/admin/customers",  label: "Customers",      icon: Users, badge: "12 overdue" },
   { href: "/admin/pppoe",      label: "PPPoE Accounts", icon: Wifi },
   { href: "/admin/plans",      label: "Plans",          icon: ReceiptText },
-  { href: "/admin/billing",    label: "Billing",        icon: FileText, badge: "4 pending" },
+  { href: "/admin/billing",    label: "Reminders & Details", icon: Bell, badge: "4 pending" },
   { href: "/admin/payments",   label: "Payments",       icon: CreditCard, badge: "3 new" },
   { href: "/admin/mikrotik",   label: "MikroTik",       icon: Router },
   { href: "/admin/topology",   label: "Topology Map",   icon: GitFork },

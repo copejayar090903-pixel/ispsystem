@@ -22,40 +22,43 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Customer not found." }, { status: 404 });
     }
 
-    // Fetch ALL bills for this customer, ordered newest first
-    const { data: bills } = await supabase
-      .from("bills")
-      .select(`
-        *,
-        payments (
-          id,
-          method,
-          reference_number,
-          amount_paid,
-          status,
-          submitted_at,
-          reviewed_at
-        )
-      `)
+    // Fetch verified payments directly
+    const { data: payments } = await supabase
+      .from("payments")
+      .select("id, method, reference_number, amount_paid, status, submitted_at, reviewed_at")
       .eq("customer_id", customer.id)
-      .order("created_at", { ascending: false })
+      .eq("status", "verified")
+      .order("submitted_at", { ascending: false })
       .limit(20);
 
-    const allBills = bills ?? [];
+    // Form currentBill dynamically if customer is not active (i.e. unpaid/overdue)
+    let currentBill = null;
+    if (customer.status !== "active") {
+      currentBill = {
+        id: "plan-purchase",
+        billing_period_start: customer.due_date ? new Date(new Date(customer.due_date).getTime() - 30 * 24 * 60 * 60 * 1000).toISOString() : new Date().toISOString(),
+        billing_period_end: customer.due_date ?? new Date().toISOString(),
+        due_date: customer.due_date ? customer.due_date.split("T")[0] : new Date().toISOString().split("T")[0],
+        amount_due: customer.plans?.monthly_fee ?? 0,
+        status: "unpaid",
+      };
+    }
 
-    // Priority: show unpaid/overdue bill first (what needs action), then the latest paid
-    const unpaidBill = allBills.find((b) => b.status === "unpaid" || b.status === "overdue" || b.status === "suspended");
-    const paidBill   = allBills.find((b) => b.status === "paid");
-    const currentBill = unpaidBill ?? paidBill ?? allBills[0] ?? null;
-
-    // Payment history: all paid bills, sorted by paid_at descending (newest first)
-    const paymentHistory = allBills
-      .filter((b) => b.status === "paid")
-      .sort((a, b) => {
-        const aTime = a.paid_at ? new Date(a.paid_at).getTime() : new Date(a.created_at).getTime();
-        const bTime = b.paid_at ? new Date(b.paid_at).getTime() : new Date(b.created_at).getTime();
-        return bTime - aTime;
-      });
+    // Map payments to pseudo-bills for the customer portal's payment history table
+    const paymentHistory = (payments ?? []).map((p: any) => {
+      const date = new Date(p.submitted_at);
+      return {
+        id: p.id,
+        billing_period_start: new Date(date.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        billing_period_end: p.submitted_at,
+        due_date: p.submitted_at,
+        amount_due: p.amount_paid,
+        paid_at: p.submitted_at,
+        billing_month: date.getMonth() + 1,
+        billing_year: date.getFullYear(),
+        payments: [p],
+      };
+    });
 
     // Check if there is a pending payment submitted for any bill
     const { data: pendingPayments } = await supabase

@@ -46,22 +46,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Customer not found." }, { status: 404 });
     }
 
-    const { data: bill } = await supabase
-      .from("bills")
-      .select("id, billing_period_start, billing_period_end, billing_month, billing_year")
-      .eq("customer_id", customer.id)
-      .eq("status", "unpaid")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (!bill) {
-      return NextResponse.json({ error: "No unpaid bills found." }, { status: 404 });
-    }
-
     const { data: payment, error: paymentError } = await supabase.from("payments").insert({
       customer_id: customer.id,
-      billing_id: bill.id,
+      billing_id: null,
       method,
       reference_number: referenceNumber,
       amount_paid: amountPaid,
@@ -74,11 +61,7 @@ export async function POST(request: Request) {
 
     // Send email alert to owner (non-blocking)
     try {
-      const billingPeriodStr = bill.billing_period_start && bill.billing_period_end
-        ? `${bill.billing_period_start} – ${bill.billing_period_end}`
-        : bill.billing_month
-        ? `${MONTH_NAMES[bill.billing_month]} ${bill.billing_year}`
-        : null;
+      const billingPeriodStr = "Plan Renewal / Purchase";
 
       await sendPaymentSubmittedToOwner({
         paymentId: payment.id,

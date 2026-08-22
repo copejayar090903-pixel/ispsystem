@@ -60,15 +60,21 @@ export async function POST(
 
     if (paymentError) throw paymentError;
 
-    const { error: billError } = await supabase
-      .from("bills")
-      .update({
-        status: "paid",
-        paid_at: new Date().toISOString()
-      })
-      .eq("id", payment.billing_id);
+    if (payment.billing_id) {
+      const { error: billError } = await supabase
+        .from("bills")
+        .update({
+          status: "paid",
+          paid_at: new Date().toISOString()
+        })
+        .eq("id", payment.billing_id);
 
-    if (billError) throw billError;
+      if (billError) throw billError;
+    }
+
+    // Immediately restore customer status & MikroTik profile upon approval
+    const { restoreCustomer } = await import("@/src/lib/customer-service");
+    await restoreCustomer(payment.customer_id);
 
     // Send payment confirmation email to the customer (non-blocking)
     if (payment.customers?.email) {

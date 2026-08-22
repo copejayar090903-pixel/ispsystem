@@ -1,15 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/cron/generate-bills",
-      "schedule": "0 0 1 * *"
-    },
-    {
       "path": "/api/cron/due-date-check",
-      "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/cron/paid-restore",
       "schedule": "0 0 * * *"
     }
   ]

@@ -14,17 +14,17 @@ const MONTH_NAMES = [
 /**
  * POST /api/billing/reminders/[id]
  *
- * Sends a billing reminder via Email (Brevo) and/or SMS (httpSMS) for a specific bill by ID.
+ * Sends a billing reminder via Email (Brevo) and/or SMS (httpSMS) for a specific customer by customer ID.
  * Expects JSON body: { channels: ["email", "sms"] } (defaults to both if not specified).
  */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id: billId } = await params;
+  const { id: customerId } = await params;
 
-  if (!billId) {
-    return NextResponse.json({ error: "Bill ID is required." }, { status: 400 });
+  if (!customerId) {
+    return NextResponse.json({ error: "Customer ID is required." }, { status: 400 });
   }
 
   // Parse request body for channel choices
@@ -41,43 +41,45 @@ export async function POST(
   try {
     const supabase = createSupabaseServerClient();
 
-    // Fetch the specific bill with customer + plan info
-    const { data: bill, error } = await supabase
-      .from("bills")
+    // Fetch the customer with plan info
+    const { data: customer, error } = await supabase
+      .from("customers")
       .select(`
         id,
-        billing_year,
-        billing_month,
-        billing_period_start,
-        billing_period_end,
+        full_name,
+        account_number,
+        email,
+        contact_number,
+        pppoe_username,
         due_date,
-        amount_due,
         status,
-        customers (
-          full_name,
-          account_number,
-          email,
-          contact_number,
-          pppoe_username,
-          plans (
-            plan_name,
-            speed
-          )
+        plans (
+          plan_name,
+          speed,
+          monthly_fee
         )
       `)
-      .eq("id", billId)
+      .eq("id", customerId)
       .single();
 
-    if (error || !bill) {
+    if (error || !customer) {
       return NextResponse.json(
-        { error: "Bill not found." },
+        { error: "Customer not found." },
         { status: 404 }
       );
     }
 
-    const customer = bill.customers as any;
-    const plan = customer?.plans as any;
-    const customerName = customer?.full_name ?? "Valued Customer";
+    const plan = customer.plans as any;
+    const customerName = customer.full_name ?? "Valued Customer";
+    const amountDue = Number(plan?.monthly_fee ?? 0);
+
+    const dueDateObj = customer.due_date ? new Date(customer.due_date) : new Date();
+    const periodStart = customer.due_date 
+      ? new Date(dueDateObj.getTime() - 30 * 24 * 60 * 60 * 1000).toLocaleDateString("en-PH") 
+      : "N/A";
+    const periodEnd = customer.due_date ? dueDateObj.toLocaleDateString("en-PH") : "N/A";
+    const billingMonth = customer.due_date ? MONTH_NAMES[dueDateObj.getMonth() + 1] : "N/A";
+    const billingYear = customer.due_date ? dueDateObj.getFullYear() : new Date().getFullYear();
 
     let emailSent = false;
     let smsSent = false;
@@ -87,7 +89,7 @@ export async function POST(
 
     // ── 1. Send Email Reminder ──
     if (channels.includes("email")) {
-      if (customer?.email) {
+      if (customer.email) {
         const emailPayload: BillingReminderPayload = {
           customerName,
           customerEmail: customer.email,
@@ -95,12 +97,12 @@ export async function POST(
           pppoeUsername: customer.pppoe_username ?? "N/A",
           planName: plan?.plan_name ?? "Standard Plan",
           planSpeed: plan?.speed ?? "N/A",
-          amountDue: Number(bill.amount_due),
-          billingPeriodStart: bill.billing_period_start ?? "N/A",
-          billingPeriodEnd: bill.billing_period_end ?? "N/A",
-          dueDate: bill.due_date ?? "N/A",
-          billingMonth: MONTH_NAMES[bill.billing_month] ?? "N/A",
-          billingYear: bill.billing_year,
+          amountDue,
+          billingPeriodStart: periodStart,
+          billingPeriodEnd: periodEnd,
+          dueDate: periodEnd,
+          billingMonth,
+          billingYear,
         };
 
         try {
@@ -118,15 +120,15 @@ export async function POST(
 
     // ── 2. Send SMS Reminder ──
     if (channels.includes("sms")) {
-      if (customer?.contact_number && customer.contact_number !== "-") {
+      if (customer.contact_number && customer.contact_number !== "-") {
         const smsPayload: BillingReminderSmsPayload = {
           customerName,
           contactNumber: customer.contact_number,
           accountNumber: customer.account_number ?? "N/A",
           planName: plan?.plan_name ?? "Standard Plan",
           planSpeed: plan?.speed ?? "N/A",
-          amountDue: Number(bill.amount_due),
-          dueDate: bill.due_date ?? "N/A",
+          amountDue,
+          dueDate: periodEnd,
         };
 
         try {
@@ -144,8 +146,8 @@ export async function POST(
               metadata: {
                 messageId: smsResult.messageId,
                 contactNumber: customer.contact_number,
-                amountDue: bill.amount_due,
-                dueDate: bill.due_date,
+                amountDue,
+                dueDate: periodEnd,
               },
             });
           } else {
@@ -181,9 +183,9 @@ export async function POST(
 
     if (Object.keys(updates).length > 0) {
       await supabase
-        .from("bills")
+        .from("customers")
         .update(updates)
-        .eq("id", billId);
+        .eq("id", customerId);
     }
 
     // Return response based on what succeeded/failed
@@ -200,14 +202,14 @@ export async function POST(
       emailError,
       smsError,
       sentAt,
-      billId,
+      billId: customerId, // keep matching key name for frontend
       customerName,
       email: customer.email,
       contactNumber: customer.contact_number,
       smsMessageId,
     });
   } catch (error: any) {
-    console.error(`[Single Reminder Route Error] Bill ${billId}:`, error);
+    console.error(`[Single Reminder Route Error] Customer ${customerId}:`, error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to send reminders." },
       { status: 500 }

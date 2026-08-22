@@ -60,8 +60,6 @@ export async function GET(req: NextRequest) {
   }
 
   const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1; // 1-indexed
 
   console.log(`[DueDateCron] ▶ Starting due-date enforcement at ${now.toISOString()}`);
 
@@ -80,8 +78,7 @@ export async function GET(req: NextRequest) {
       .from("customers")
       .select(
         `id, full_name, pppoe_username, status, due_date, plan_id,
-         plans ( speed ),
-         bills ( id, billing_year, billing_month, status )`
+         plans ( speed )`
       )
       .in("status", ["active", "overdue"])
       .lt("due_date", now.toISOString())
@@ -111,23 +108,8 @@ export async function GET(req: NextRequest) {
 
     for (const customer of overdueCustomers) {
       const pppoeUsername: string = customer.pppoe_username;
-      const bills: any[] = (customer.bills as any[]) ?? [];
 
-      // ── 2a. Skip if customer paid this billing cycle ──────────────────────
-      const paidThisCycle = bills.some(
-        (b) =>
-          b.billing_year === currentYear &&
-          b.billing_month === currentMonth &&
-          b.status === "paid"
-      );
-
-      if (paidThisCycle) {
-        console.log(`[DueDateCron] ⏭ ${pppoeUsername} — paid this cycle, skipping.`);
-        skipped++;
-        continue;
-      }
-
-      // ── 2b. Determine how many days overdue ───────────────────────────────
+      // ── 2a. Determine how many days overdue ───────────────────────────────
       const dueDate = new Date(customer.due_date as string);
       const daysOverdue = Math.floor(
         (now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)

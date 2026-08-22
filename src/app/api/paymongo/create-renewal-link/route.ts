@@ -42,17 +42,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Plan not found." }, { status: 404 });
     }
 
-    // 3. Find the latest unpaid/overdue bill (used for linking after payment)
-    const { data: bill } = await supabase
-      .from("bills")
-      .select("id")
-      .eq("customer_id", customer.id)
-      .in("status", ["unpaid", "overdue", "suspended"])
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-
-    // 4. Build redirect URLs
+    // 3. Build redirect URLs
     const appUrl = (
       process.env.NEXT_PUBLIC_APP_URL ??
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ??
@@ -61,7 +51,7 @@ export async function POST(request: Request) {
     const successUrl = `${appUrl}/customer?payment=success&account=${accountNumber}`;
     const cancelUrl = `${appUrl}/customer?payment=cancelled&account=${accountNumber}`;
 
-    // 5. Create PayMongo Payment Link
+    // 4. Create PayMongo Payment Link
     const description = `ISP Renewal – ${customer.full_name} | ${plan.plan_name} (${plan.monthly_fee}/mo)`;
 
     const link = await createPaymentLink({
@@ -73,7 +63,6 @@ export async function POST(request: Request) {
         plan_id: plan.id,
         plan_name: plan.plan_name,
         is_renewal: "true",
-        ...(bill ? { bill_id: bill.id } : {}),
       },
       successUrl,
       cancelUrl,
