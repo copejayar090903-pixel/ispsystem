@@ -53,8 +53,11 @@ export async function POST(request: Request) {
       .single();
 
     // 4. Build redirect URLs
-    const appUrl =
-      process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
+    const appUrl = (
+      process.env.NEXT_PUBLIC_APP_URL ??
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ??
+      "http://localhost:3000"
+    ).replace(/\/$/, "");
     const successUrl = `${appUrl}/customer?payment=success&account=${accountNumber}`;
     const cancelUrl = `${appUrl}/customer?payment=cancelled&account=${accountNumber}`;
 

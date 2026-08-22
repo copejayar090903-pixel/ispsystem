@@ -424,7 +424,7 @@ function buildPaymentSubmittedHtml(d: PaymentSubmittedPayload, approveUrl: strin
 }
 
 function buildPaymentSubmittedText(d: PaymentSubmittedPayload): string {
-  const adminUrl = d.adminUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const adminUrl = d.adminUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
   const submitted = new Date(d.submittedAt).toLocaleString("en-PH");
   return `NEW PAYMENT SUBMITTED — Action Required
 
@@ -456,7 +456,7 @@ export async function sendPaymentSubmittedToOwner(data: PaymentSubmittedPayload)
   const client      = createResendClient();
   const senderEmail = process.env.RESEND_SENDER_EMAIL ?? "onboarding@resend.dev";
   const senderName  = process.env.RESEND_SENDER_NAME  ?? "ISP Billing System";
-  const appUrl      = data.adminUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl      = data.adminUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
   // Generate signed URLs for one-click approve/reject
   const token = generateEmailActionToken(data.paymentId);
@@ -665,7 +665,7 @@ function buildPaymentRejectedHtml(d: PaymentRejectedPayload): string {
   const senderName   = process.env.RESEND_SENDER_NAME      ?? "ISP Billing System";
   const supportEmail = process.env.PAYMENT_SUPPORT_EMAIL   ?? "support@yourisp.com";
   const supportPhone = process.env.PAYMENT_SUPPORT_PHONE   ?? "N/A";
-  const portalUrl    = process.env.NEXT_PUBLIC_APP_URL      ?? "http://localhost:3000";
+  const portalUrl    = process.env.NEXT_PUBLIC_APP_URL      ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
   const year         = new Date().getFullYear();
 
   const rejectedAt = new Date(d.rejectedAt).toLocaleString("en-PH", {
@@ -789,7 +789,7 @@ function buildPaymentRejectedText(d: PaymentRejectedPayload): string {
   const rejectedAt   = new Date(d.rejectedAt).toLocaleString("en-PH");
   const supportEmail = process.env.PAYMENT_SUPPORT_EMAIL ?? "support@yourisp.com";
   const supportPhone = process.env.PAYMENT_SUPPORT_PHONE ?? "N/A";
-  const portalUrl    = process.env.NEXT_PUBLIC_APP_URL    ?? "http://localhost:3000";
+  const portalUrl    = process.env.NEXT_PUBLIC_APP_URL    ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
   return `PAYMENT NOT VERIFIED — ${d.customerName}
 
 Hello ${d.customerName},

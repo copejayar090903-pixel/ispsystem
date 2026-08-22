@@ -223,7 +223,7 @@ export async function GET(request: NextRequest) {
   }
 
   // ── REJECT → Show form ──
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
   return htmlResponse(htmlPage("Reject Payment", `
     <div class="card">
       <div class="hdr hdr-reject"><span class="icon">❌</span><h1>Reject Payment</h1><p>Provide a reason for the customer</p></div>
