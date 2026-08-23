@@ -9,7 +9,6 @@ export interface BillingReminderPayload {
   customerName: string;
   customerEmail: string;
   accountNumber: string;
-  pppoeUsername: string;
   planName: string;
   planSpeed: string;
   amountDue: number;
@@ -18,6 +17,7 @@ export interface BillingReminderPayload {
   dueDate: string;
   billingMonth: string;
   billingYear: number;
+  daysRemaining: number;
 }
 
 // ─── Resend API Client ────────────────────────────────────────────────────────
@@ -68,7 +68,6 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
   const {
     customerName,
     accountNumber,
-    pppoeUsername,
     planName,
     planSpeed,
     amountDue,
@@ -77,6 +76,7 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
     dueDate,
     billingMonth,
     billingYear,
+    daysRemaining,
   } = data;
 
   const gcashNumber  = process.env.PAYMENT_GCASH_NUMBER         ?? "09759209976";
@@ -86,6 +86,7 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
   const supportEmail = process.env.PAYMENT_SUPPORT_EMAIL        ?? "support@yourisp.com";
   const supportPhone = process.env.PAYMENT_SUPPORT_PHONE        ?? "N/A";
   const senderName   = process.env.RESEND_SENDER_NAME           ?? "ISP Billing System";
+  const portalUrl    = "https://isp.devcope.online";
 
   const formattedDueDate = new Date(dueDate).toLocaleDateString("en-PH", {
     weekday: "long",
@@ -94,6 +95,9 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
     day: "numeric",
   });
 
+  const urgencyColor = daysRemaining <= 2 ? "#dc2626" : daysRemaining <= 5 ? "#d97706" : "#2563eb";
+  const urgencyBg    = daysRemaining <= 2 ? "#fef2f2" : daysRemaining <= 5 ? "#fffbeb" : "#eff6ff";
+  const urgencyBorder= daysRemaining <= 2 ? "#fca5a5" : daysRemaining <= 5 ? "#fcd34d" : "#bfdbfe";
   const year = new Date().getFullYear();
 
   return /* html */`<!DOCTYPE html>
@@ -123,9 +127,10 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
   .lbl{color:#64748b}
   .val{font-weight:600;color:#1e293b}
   .val-due{color:#dc2626;font-weight:700}
-  .deadline{background:#fef2f2;border:1.5px solid #fca5a5;border-radius:12px;padding:18px 24px;margin-bottom:24px;text-align:center}
-  .deadline-lbl{font-size:12px;color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
-  .deadline-val{font-size:20px;font-weight:800;color:#dc2626;margin-top:6px}
+  .countdown{border-radius:12px;padding:20px 24px;margin-bottom:24px;text-align:center;border:1.5px solid ${urgencyBorder};background:${urgencyBg}}
+  .countdown-days{font-size:52px;font-weight:900;color:${urgencyColor};line-height:1;letter-spacing:-2px}
+  .countdown-lbl{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:${urgencyColor};margin-top:4px}
+  .countdown-date{font-size:14px;font-weight:600;color:#475569;margin-top:8px}
   .pay-card{border:1.5px solid #e2e8f0;border-radius:12px;overflow:hidden;margin-bottom:10px}
   .pay-hdr{padding:11px 16px;font-weight:700;font-size:13px}
   .gcash{background:#eff6ff;color:#1d4ed8;border-bottom:1px solid #bfdbfe}
@@ -136,6 +141,9 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
   .pi-val{font-weight:700;color:#1e293b;font-family:'Courier New',monospace}
   .ref{background:#f1f5f9;border-radius:8px;padding:10px 14px;margin-top:8px;font-size:12px;color:#475569;line-height:1.5}
   .ref strong{color:#1e293b}
+  .portal-card{border:1.5px solid #bfdbfe;border-radius:12px;overflow:hidden;margin-bottom:10px}
+  .portal-hdr{padding:11px 16px;font-weight:700;font-size:13px;background:#eff6ff;color:#1d4ed8;border-bottom:1px solid #bfdbfe}
+  .paymongo-disabled{background:#f8fafc;border:1.5px dashed #e2e8f0;border-radius:10px;padding:14px 16px;margin-top:10px;text-align:center;color:#94a3b8;font-size:12px}
   .divider{height:1px;background:#e2e8f0;margin:24px 0}
   .footer{background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 32px;text-align:center}
   .footer p{font-size:12px;color:#94a3b8;line-height:1.9}
@@ -151,44 +159,45 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
       <circle cx="26" cy="26" r="8" stroke="white" stroke-width="2.5" fill="none"/>
     </svg>
     <h1>${senderName}</h1>
-    <p>Monthly Billing Reminder</p>
+    <p>Subscription Renewal Reminder</p>
   </div>
 
   <div class="alert">
-    &#9888;&#65039; Your bill is due in <strong>3 days</strong> &mdash; ${formattedDueDate}
+    &#9888;&#65039; Your subscription expires in <strong>${daysRemaining} day${daysRemaining !== 1 ? "s" : ""}</strong> &mdash; ${formattedDueDate}
   </div>
 
   <div class="body">
     <p class="greeting">
       Hello <strong>${customerName}</strong>,<br/><br/>
-      This is a friendly reminder that your internet subscription bill for
-      <strong>${billingMonth} ${billingYear}</strong> is due in <strong>3 days</strong>.
-      Please settle your balance before the deadline to avoid any service interruption.
+      This is a friendly reminder that your internet subscription is expiring in
+      <strong>${daysRemaining} day${daysRemaining !== 1 ? "s" : ""}</strong> on <strong>${formattedDueDate}</strong>.
+      Please renew before the due date to avoid any service interruption.
     </p>
 
-    <p class="sec-title">&#128203; Bill Summary</p>
+    <!-- Countdown Banner -->
+    <div class="countdown">
+      <div class="countdown-days">${daysRemaining}</div>
+      <div class="countdown-lbl">Day${daysRemaining !== 1 ? "s" : ""} Remaining</div>
+      <div class="countdown-date">&#128197; Due on ${formattedDueDate}</div>
+    </div>
+
+    <p class="sec-title">&#128203; Subscription Summary</p>
     <div class="bill-card">
       <div class="bill-hdr">
         <div class="bill-amount">${formatPHP(amountDue)}</div>
-        <div class="bill-amount-lbl">Total Amount Due</div>
+        <div class="bill-amount-lbl">Amount Due for Renewal</div>
       </div>
       <div class="bill-rows">
         <div class="row"><span class="lbl">Account Number</span><span class="val">${accountNumber}</span></div>
-        <div class="row"><span class="lbl">PPPoE Username</span><span class="val">${pppoeUsername}</span></div>
         <div class="row"><span class="lbl">Internet Plan</span><span class="val">${planName} &mdash; ${planSpeed}</span></div>
         <div class="row"><span class="lbl">Billing Period</span><span class="val">${billingPeriodStart} &ndash; ${billingPeriodEnd}</span></div>
         <div class="row"><span class="lbl">Due Date</span><span class="val val-due">&#128197; ${dueDate}</span></div>
       </div>
     </div>
 
-    <div class="deadline">
-      <div class="deadline-lbl">&#9200; Payment Deadline</div>
-      <div class="deadline-val">${formattedDueDate}</div>
-    </div>
-
     <p class="sec-title">&#128179; How to Pay</p>
     <p style="font-size:13px;color:#475569;margin-bottom:14px;line-height:1.6">
-      Use your <strong>Account Number (${accountNumber})</strong> as reference when making payment via any channel below:
+      Use your <strong>Account Number (${accountNumber})</strong> as reference when making payment:
     </p>
 
     <div class="pay-card">
@@ -211,29 +220,29 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
 
     <div class="divider"></div>
 
-    <p class="sec-title">&#127760; Pay Online via Our Portal</p>
-    <div class="pay-card" style="border-color:#bfdbfe">
-      <div class="pay-hdr" style="background:#eff6ff;color:#1d4ed8;border-bottom:1px solid #bfdbfe">&#128187; Online Payment Portal &mdash; Fastest &amp; Easiest</div>
+    <p class="sec-title">&#127760; Submit Your Payment Online</p>
+    <div class="portal-card">
+      <div class="portal-hdr">&#128187; Customer Portal &mdash; Verify Your Payment</div>
       <div class="pay-body">
-        <p style="font-size:13px;color:#334155;margin-bottom:12px;line-height:1.7">You can submit your payment verification directly through our online portal. Here&rsquo;s how:</p>
+        <p style="font-size:13px;color:#334155;margin-bottom:12px;line-height:1.7">After paying via GCash or Maya, submit your reference number through our portal:</p>
         <ol style="font-size:13px;color:#475569;line-height:2;padding-left:18px;margin:0">
-          <li>Visit <a href="https://isp-system-beta.vercel.app" style="color:#2563eb;font-weight:700;text-decoration:none">isp-system-beta.vercel.app</a></li>
-          <li>Enter your <strong>Account Number: ${accountNumber}</strong> in the search box</li>
-          <li>Click <strong>Search</strong> to load your billing statement</li>
-          <li>Select your <strong>Payment Method</strong> (GCash, Maya, Bank Transfer, or Cash)</li>
-          <li>Enter your <strong>Reference Number</strong> and <strong>Amount Paid</strong></li>
-          <li>Click <strong>Submit Payment Verification</strong></li>
+          <li>Visit <a href="${portalUrl}" style="color:#2563eb;font-weight:700;text-decoration:none">${portalUrl}</a></li>
+          <li>Enter your <strong>Account Number: ${accountNumber}</strong></li>
+          <li>Click <strong>Check Account</strong></li>
+          <li>Select your <strong>Payment Method</strong> and enter your <strong>Reference Number</strong></li>
+          <li>Click <strong>Submit Manual Payment Proof</strong></li>
         </ol>
-        <div class="ref" style="margin-top:12px">&#9989; Your connection will be re-enabled automatically once your payment is verified by our team.</div>
+        <div class="paymongo-disabled">
+          &#128274; Online card/e-wallet checkout is temporarily unavailable. Please use GCash or Maya above.
+        </div>
       </div>
     </div>
 
     <div class="divider"></div>
 
     <p style="font-size:13px;color:#475569;line-height:1.8">
-      You can also submit your payment through our online portal at
-      <a href="https://isp-system-beta.vercel.app" style="color:#2563eb;font-weight:700">isp-system-beta.vercel.app</a>
-      or contact support for assistance.
+      Need help? Contact us at <a href="mailto:${supportEmail}" style="color:#2563eb;font-weight:700">${supportEmail}</a>
+      or call <strong>${supportPhone}</strong>.
     </p>
   </div>
 
@@ -241,7 +250,7 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
     <p>
       Questions? Email us at <a href="mailto:${supportEmail}">${supportEmail}</a> &nbsp;|&nbsp; Call <strong>${supportPhone}</strong><br/>
       <br/>
-      <em>This is an automated billing reminder. Please do not reply to this email.</em><br/>
+      <em>This is an automated reminder. Please do not reply to this email.</em><br/>
       <br/>
       &copy; ${year} ${senderName}. All rights reserved.
     </p>
@@ -255,8 +264,8 @@ function buildReminderEmailHtml(data: BillingReminderPayload): string {
 
 function buildReminderEmailText(data: BillingReminderPayload): string {
   const {
-    customerName, accountNumber, pppoeUsername, planName, planSpeed,
-    amountDue, billingPeriodStart, billingPeriodEnd, dueDate, billingMonth, billingYear,
+    customerName, accountNumber, planName, planSpeed,
+    amountDue, billingPeriodStart, billingPeriodEnd, dueDate, billingMonth, billingYear, daysRemaining,
   } = data;
 
   const gcashNumber  = process.env.PAYMENT_GCASH_NUMBER        ?? "09759209976";
@@ -264,22 +273,24 @@ function buildReminderEmailText(data: BillingReminderPayload): string {
   const mayaNumber   = process.env.PAYMENT_MAYA_NUMBER         ?? "09759209976";
   const supportEmail = process.env.PAYMENT_SUPPORT_EMAIL       ?? "support@yourisp.com";
   const supportPhone = process.env.PAYMENT_SUPPORT_PHONE       ?? "N/A";
+  const portalUrl    = "https://isp.devcope.online";
 
-  return `BILLING REMINDER — ${billingMonth} ${billingYear}
-Bill due in 3 days: ${dueDate}
+  return `SUBSCRIPTION RENEWAL REMINDER — ${billingMonth} ${billingYear}
+Expires in ${daysRemaining} day${daysRemaining !== 1 ? "s" : ""} — Due: ${dueDate}
 
 Hello ${customerName},
 
-Your internet bill is due in 3 days. Please pay before the due date to avoid service interruption.
+Your internet subscription is expiring in ${daysRemaining} day${daysRemaining !== 1 ? "s" : ""} on ${dueDate}.
+Please renew before the due date to avoid service interruption.
 
-BILL DETAILS
+SUBSCRIPTION DETAILS
 ═══════════════════════════════════
 Account Number : ${accountNumber}
-PPPoE Username : ${pppoeUsername}
 Plan           : ${planName} (${planSpeed})
 Billing Period : ${billingPeriodStart} – ${billingPeriodEnd}
 Amount Due     : ${formatPHP(amountDue)}
 Due Date       : ${dueDate}
+Days Remaining : ${daysRemaining} day${daysRemaining !== 1 ? "s" : ""}
 
 HOW TO PAY  (use Account No. ${accountNumber} as reference)
 ═══════════════════════════════════
@@ -292,23 +303,23 @@ HOW TO PAY  (use Account No. ${accountNumber} as reference)
    Number       : ${mayaNumber}
    Reference    : Enter ${accountNumber} in Remarks / Note
 
-3. ONLINE PORTAL (Easiest & Fastest)
-   Visit        : https://isp-system-beta.vercel.app
+3. ONLINE PORTAL — Submit Payment Proof
+   Visit        : ${portalUrl}
    Steps:
-     1. Go to https://isp-system-beta.vercel.app
+     1. Go to ${portalUrl}
      2. Enter your Account Number: ${accountNumber}
-     3. Click "Search" to load your billing statement
-     4. Select your Payment Method
-     5. Enter your Reference Number and Amount Paid
-     6. Click "Submit Payment Verification"
-   Your connection will be re-enabled automatically once verified.
+     3. Click "Check Account"
+     4. Select your Payment Method and enter Reference Number
+     5. Click "Submit Manual Payment Proof"
+   Note: Online card/e-wallet checkout is temporarily unavailable.
+         Please pay via GCash or Maya, then submit reference here.
 
 SUPPORT
 ═══════════════════════════════════
 Email : ${supportEmail}
 Phone : ${supportPhone}
 
-This is an automated billing reminder. Please do not reply to this email.`;
+This is an automated reminder. Please do not reply to this email.`;
 }
 
 // ─── Send Billing Reminder via Resend API ─────────────────────────────────────

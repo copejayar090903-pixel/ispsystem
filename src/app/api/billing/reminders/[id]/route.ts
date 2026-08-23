@@ -90,11 +90,15 @@ export async function POST(
     // ── 1. Send Email Reminder ──
     if (channels.includes("email")) {
       if (customer.email) {
+        const msPerDay = 24 * 60 * 60 * 1000;
+        const daysRemaining = customer.due_date
+          ? Math.max(0, Math.round((dueDateObj.getTime() - Date.now()) / msPerDay))
+          : 0;
+
         const emailPayload: BillingReminderPayload = {
           customerName,
           customerEmail: customer.email,
           accountNumber: customer.account_number ?? "N/A",
-          pppoeUsername: customer.pppoe_username ?? "N/A",
           planName: plan?.plan_name ?? "Standard Plan",
           planSpeed: plan?.speed ?? "N/A",
           amountDue,
@@ -103,6 +107,7 @@ export async function POST(
           dueDate: periodEnd,
           billingMonth,
           billingYear,
+          daysRemaining,
         };
 
         try {

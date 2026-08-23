@@ -25,15 +25,15 @@ export async function POST(req: NextRequest) {
 
   const today = new Date();
   const targetDate = new Date(today);
-  targetDate.setDate(today.getDate() + 3);
+  targetDate.setDate(today.getDate() + 5);
 
   const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0)).toISOString();
-  const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999)).toISOString();
+  const endOfDay   = new Date(targetDate.setHours(23, 59, 59, 999)).toISOString();
 
   try {
     const supabase = createSupabaseServerClient();
 
-    // Query active/overdue customers whose due_date is in exactly 3 days
+    // Query active/overdue customers whose due_date is in exactly 5 days
     const { data: customers, error } = await supabase
       .from("customers")
       .select(`
@@ -90,11 +90,13 @@ export async function POST(req: NextRequest) {
 
       // ── Email Reminder ──────────────────────────────────────────────────
       if (customer.email) {
+      const msPerDay = 24 * 60 * 60 * 1000;
+      const daysRemaining = Math.round((dueDateObj.getTime() - Date.now()) / msPerDay);
+
         const emailPayload: BillingReminderPayload = {
           customerName,
           customerEmail: customer.email,
           accountNumber: customer.account_number ?? "N/A",
-          pppoeUsername: customer.pppoe_username ?? "N/A",
           planName: plan?.plan_name ?? "Standard Plan",
           planSpeed: plan?.speed ?? "N/A",
           amountDue,
@@ -103,6 +105,7 @@ export async function POST(req: NextRequest) {
           dueDate: periodEnd,
           billingMonth: MONTH_NAMES[dueDateObj.getMonth() + 1] ?? "N/A",
           billingYear: dueDateObj.getFullYear(),
+          daysRemaining,
         };
 
         try {

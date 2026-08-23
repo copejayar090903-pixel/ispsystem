@@ -13,8 +13,10 @@ import { cache } from "@/src/lib/redis";
  * Typically triggered immediately when payment is verified (manual approval or PayMongo).
  *
  * @param customerId The UUID of the customer to restore.
+ * @param newPlanId  Optional. If the customer paid for a different plan, pass its UUID here
+ *                   to update their subscription and apply the new PPPoE speed profile.
  */
-export async function restoreCustomer(customerId: string): Promise<void> {
+export async function restoreCustomer(customerId: string, newPlanId?: string): Promise<void> {
   const supabase = createSupabaseServerClient();
   const now = new Date();
 
@@ -40,12 +42,39 @@ export async function restoreCustomer(customerId: string): Promise<void> {
     throw new Error(`Customer lookup failed during restoration: ${fetchError?.message ?? "Customer not found."}`);
   }
 
-  const pppoeUsername = customer.pppoe_username;
-  const previousStatus = customer.status;
-  const plan = customer.plans as any;
+  // If a new plan is being applied, update plan_id first and re-fetch the plan speed
+  let plan = customer.plans as any;
+  if (newPlanId && newPlanId !== customer.plan_id) {
+    const { error: planUpdateError } = await supabase
+      .from("customers")
+      .update({ plan_id: newPlanId })
+      .eq("id", customerId);
+
+    if (planUpdateError) {
+      throw new Error(`Failed to update customer plan: ${planUpdateError.message}`);
+    }
+
+    // Fetch the new plan's speed
+    const { data: newPlan, error: planFetchError } = await supabase
+      .from("plans")
+      .select("id, speed")
+      .eq("id", newPlanId)
+      .single();
+
+    if (planFetchError || !newPlan) {
+      throw new Error(`Failed to fetch new plan details: ${planFetchError?.message ?? "Plan not found."}`);
+    }
+
+    plan = newPlan;
+    console.log(`[CustomerService] Plan updated to ${newPlanId} (speed: ${newPlan.speed}) for ${customer.full_name}`);
+  }
   const targetProfile = plan?.speed && plan.speed !== "Expired-Profile" ? plan.speed : "default";
 
+  const pppoeUsername = customer.pppoe_username;
+  const previousStatus = customer.status;
+
   console.log(`[CustomerService] Starting restoration for ${customer.full_name} (${pppoeUsername}). targetProfile: ${targetProfile}`);
+
 
   // 2. Re-enable PPPoE secret on MikroTik if previously suspended
   if (previousStatus === "suspended") {

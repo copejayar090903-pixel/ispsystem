@@ -278,6 +278,7 @@ export default function CustomerPortalPage() {
           referenceNumber: referenceNumber || null,
           amountPaid: Number(amountPaid),
           proofUrl: null,
+          planId: selectedPlan?.id ?? undefined,
         }),
       });
       const data = await res.json();
@@ -527,34 +528,15 @@ export default function CustomerPortalPage() {
                           Proceed to Payment
                         </label>
 
-                        {/* Online checkout via PayMongo */}
-                        <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 dark:border-violet-500/25 dark:from-violet-500/10 dark:to-indigo-500/10 p-4">
-                          <p className="flex items-center gap-2 text-sm font-bold text-violet-900 dark:text-violet-200">
-                            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-violet-600 text-white text-[9px] font-extrabold shadow-sm">P</span>
-                            Pay Online via PayMongo (Instant Restoration)
+                        {/* Online checkout — DISABLED */}
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-4 opacity-60 cursor-not-allowed">
+                          <p className="flex items-center gap-2 text-sm font-bold text-slate-500 dark:text-slate-400">
+                            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-400 text-white text-[9px] font-extrabold shadow-sm">🔒</span>
+                            Online Payment via PayMongo (Temporarily Unavailable)
                           </p>
-                          <p className="mt-1 text-xs leading-5 text-violet-700/80 dark:text-violet-300/80">
-                            Securely pay ₱{selectedPlan.monthly_fee.toLocaleString()} with GCash, Maya, credit/debit card, or e-wallets. Your connection is restored immediately after payment.
+                          <p className="mt-1 text-xs leading-5 text-slate-400 dark:text-slate-500">
+                            Online card and e-wallet checkout is currently disabled. Please use GCash or Maya below and submit your reference number for admin verification.
                           </p>
-                          <Button
-                            id="btn-renewal-paymongo"
-                            className="mt-3 w-full h-11 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-semibold shadow-lg shadow-violet-500/20 transition-all"
-                            onClick={() => void handleRenewalPayWithPaymongo()}
-                            disabled={renewalPaymongoLoading}
-                          >
-                            {renewalPaymongoLoading ? (
-                              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Opening checkout…</>
-                            ) : (
-                              <><ExternalLink className="h-4 w-4 mr-2" /> Pay ₱{selectedPlan.monthly_fee.toLocaleString()} via PayMongo</>
-                            )}
-                          </Button>
-                        </div>
-
-                        {/* Divider */}
-                        <div className="flex items-center gap-3 py-1">
-                          <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">or pay manually</span>
-                          <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
                         </div>
 
                         {/* Manual payment upload */}

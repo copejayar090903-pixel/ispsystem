@@ -26,6 +26,7 @@ export async function POST(
       .select(`
         customer_id,
         billing_id,
+        plan_id,
         amount_paid,
         method,
         reference_number,
@@ -73,8 +74,9 @@ export async function POST(
     }
 
     // Immediately restore customer status & MikroTik profile upon approval
+    // Pass plan_id so the PPPoE profile is updated to the plan the customer paid for
     const { restoreCustomer } = await import("@/src/lib/customer-service");
-    await restoreCustomer(payment.customer_id);
+    await restoreCustomer(payment.customer_id, payment.plan_id ?? undefined);
 
     // Send payment confirmation email to the customer (non-blocking)
     if (payment.customers?.email) {

@@ -13,6 +13,7 @@ const paymentSubmitSchema = z.object({
   referenceNumber: z.string().nullable().optional(),
   amountPaid: z.number().positive("Amount paid must be greater than zero"),
   proofUrl: z.string().nullable().optional(),
+  planId: z.string().uuid("Plan ID must be a valid UUID").optional(),
 });
 
 const MONTH_NAMES = [
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { accountNumber, method, referenceNumber, amountPaid, proofUrl } = validation.data;
+    const { accountNumber, method, referenceNumber, amountPaid, proofUrl, planId } = validation.data;
 
     const supabase = createSupabaseServerClient();
     const { data: customer } = await supabase
@@ -49,6 +50,7 @@ export async function POST(request: Request) {
     const { data: payment, error: paymentError } = await supabase.from("payments").insert({
       customer_id: customer.id,
       billing_id: null,
+      plan_id: planId ?? null,
       method,
       reference_number: referenceNumber,
       amount_paid: amountPaid,
