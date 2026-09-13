@@ -598,7 +598,7 @@ export default function Home() {
 
                       {timeLeft?.isOverdue && (
                         <div className="text-center text-xs font-semibold text-rose-500 dark:text-rose-400 animate-pulse">
-                          ⚠️ Subscription Expired! Please purchase load to restore your connection.
+                          ⚠️ Subscription Expired ! Please purchase load to restore your connection.
                         </div>
                       )}
 
@@ -645,11 +645,10 @@ export default function Home() {
                                     <button
                                       key={plan.id}
                                       onClick={() => setSelectedPlan(plan)}
-                                      className={`text-left p-3.5 rounded-2xl border-2 transition-all duration-200 ${
-                                        selectedPlan?.id === plan.id
+                                      className={`text-left p-3.5 rounded-2xl border-2 transition-all duration-200 ${selectedPlan?.id === plan.id
                                           ? "border-blue-500 bg-blue-50 dark:bg-blue-500/10"
                                           : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-300"
-                                      }`}
+                                        }`}
                                     >
                                       <div className="flex justify-between items-start">
                                         <div>
@@ -824,7 +823,7 @@ export default function Home() {
                           <div>
                             <span className="font-semibold text-blue-900 dark:text-blue-200 block">GCash / Maya / Card Portal Pay</span>
                             <span className="text-blue-700/80 dark:text-blue-300/80 leading-normal block mt-1">
-                              {paymentMethod === "paymongo" 
+                              {paymentMethod === "paymongo"
                                 ? "Pay instantly online using GCash, Maya, or Credit/Debit Card. No manual receipt submission required."
                                 : "Pay manually, then input the reference transaction code and amount paid below to submit verification."
                               }
@@ -847,7 +846,7 @@ export default function Home() {
                               <option value="cash">Cash (Manual Upload)</option>
                             </select>
                           </div>
-                          
+
                           {paymentMethod !== "paymongo" && (
                             <>
                               <div className="space-y-1.5">
@@ -914,7 +913,7 @@ export default function Home() {
         <p className="font-display text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white max-w-xl mx-auto mb-12">
           Engineered for performance, designed for convenience.
         </p>
-        
+
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 pt-4">
           <FeatureCard
             icon={<Zap className="h-6 w-6 text-amber-500" />}
@@ -1057,9 +1056,8 @@ export default function Home() {
               >
                 <span>{item.question}</span>
                 <ChevronDown
-                  className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${
-                    activeFaq === index ? "rotate-180 text-blue-500" : ""
-                  }`}
+                  className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${activeFaq === index ? "rotate-180 text-blue-500" : ""
+                    }`}
                 />
               </button>
               {activeFaq === index && (

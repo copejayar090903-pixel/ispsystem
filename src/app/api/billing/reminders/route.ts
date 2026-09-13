@@ -23,9 +23,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Parse optional body params (channels override, daysBeforeDue)
+  let bodyChannels: string[] | null = null;
+  let bodyDaysBeforeDue: number | null = null;
+  try {
+    const body = await req.json();
+    if (Array.isArray(body.channels) && body.channels.length > 0) bodyChannels = body.channels;
+    if (typeof body.daysBeforeDue === "number" && body.daysBeforeDue >= 1) bodyDaysBeforeDue = body.daysBeforeDue;
+  } catch { /* empty body is fine */ }
+
+  // daysBeforeDue: query param > body > default (3)
+  const queryDays = parseInt(req.nextUrl.searchParams.get("daysBeforeDue") ?? "", 10);
+  const daysBeforeDue = (!isNaN(queryDays) && queryDays >= 1) ? queryDays : (bodyDaysBeforeDue ?? 3);
+
   const today = new Date();
   const targetDate = new Date(today);
-  targetDate.setDate(today.getDate() + 5);
+  targetDate.setDate(today.getDate() + daysBeforeDue);
 
   const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0)).toISOString();
   const endOfDay   = new Date(targetDate.setHours(23, 59, 59, 999)).toISOString();
@@ -61,8 +74,9 @@ export async function POST(req: NextRequest) {
 
     if (!customers || customers.length === 0) {
       return NextResponse.json({
-        message: `No customers due on ${targetDateStr}. No reminders sent.`,
+        message: `No customers due in ${daysBeforeDue} day(s) (${targetDateStr}). No reminders sent.`,
         targetDate: targetDateStr,
+        daysBeforeDue,
         email: { sent: 0, skipped: 0, errors: [] },
         sms: { sent: 0, skipped: 0, errors: [] },
       });
@@ -75,6 +89,9 @@ export async function POST(req: NextRequest) {
     let smsSent = 0;
     let smsSkipped = 0;
     const smsErrors: Array<{ customerId: string; customerName: string; error: string }> = [];
+
+    // Allowed channels: from body, or both by default
+    const allowedChannels = bodyChannels ?? ["email", "sms"];
 
     for (const customer of customers) {
       const plan = customer.plans as any;
@@ -89,7 +106,7 @@ export async function POST(req: NextRequest) {
       let smsSentForThisCustomer = false;
 
       // ── Email Reminder ──────────────────────────────────────────────────
-      if (customer.email) {
+      if (allowedChannels.includes("email") && customer.email) {
       const msPerDay = 24 * 60 * 60 * 1000;
       const daysRemaining = Math.round((dueDateObj.getTime() - Date.now()) / msPerDay);
 
@@ -127,7 +144,7 @@ export async function POST(req: NextRequest) {
       }
 
       // ── SMS Reminder via httpSMS ────────────────────────────────────────
-      if (customer.contact_number && customer.contact_number !== "-") {
+      if (allowedChannels.includes("sms") && customer.contact_number && customer.contact_number !== "-") {
         const smsPayload: BillingReminderSmsPayload = {
           customerName,
           contactNumber: customer.contact_number,
@@ -206,8 +223,9 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      message: `Billing reminders processed for ${targetDateStr}.`,
+      message: `Billing reminders processed for ${targetDateStr} (${daysBeforeDue} day(s) before due).`,
       targetDate: targetDateStr,
+      daysBeforeDue,
       totalEligible: customers.length,
       email: {
         sent: emailSent,
@@ -242,9 +260,12 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const queryDays = parseInt(req.nextUrl.searchParams.get("daysBeforeDue") ?? "", 10);
+  const daysBeforeDue = (!isNaN(queryDays) && queryDays >= 1) ? queryDays : 3;
+
   const today = new Date();
   const targetDate = new Date(today);
-  targetDate.setDate(today.getDate() + 3);
+  targetDate.setDate(today.getDate() + daysBeforeDue);
 
   const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0)).toISOString();
   const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999)).toISOString();
