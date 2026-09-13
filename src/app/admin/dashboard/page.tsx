@@ -754,7 +754,7 @@ export default function DashboardPage() {
                         <thead>
                           <tr className="border-b border-slate-100 dark:border-slate-800">
                             <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px]">#</th>
-                            <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px]">Username</th>
+                            <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px]">Customer</th>
                             <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px] hidden sm:table-cell">IP Address</th>
                             <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px] hidden md:table-cell">Uptime</th>
                             <th className="text-left py-2 px-2 text-slate-400 font-semibold uppercase tracking-wide text-[10px]">
