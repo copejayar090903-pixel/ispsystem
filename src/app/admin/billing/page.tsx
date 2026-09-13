@@ -3,10 +3,14 @@
 import { useState, useEffect, useMemo } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
+  Bell,
   CalendarClock,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Download,
   FilePlus,
+  Info,
   Mail,
   MailCheck,
   MailX,
@@ -14,6 +18,7 @@ import {
   Receipt,
   Search,
   Send,
+  Settings2,
   TrendingUp,
   X,
   CreditCard,
@@ -23,6 +28,7 @@ import {
   AlertTriangle,
   RefreshCw,
   MessageSquare,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DataTable } from "@/src/components/admin/data-table";
@@ -90,6 +96,26 @@ type Analytics = {
   monthlyRevenueTrend: Array<{ month: string; revenue: number }>;
 };
 
+type ReminderScheduleConfig = {
+  enabled: boolean;
+  hour: number;
+  minute: number;
+  daysBeforeDue: number;
+  channels: string[];
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+};
+
+const DEFAULT_SCHEDULE: ReminderScheduleConfig = {
+  enabled: false,
+  hour: 8,
+  minute: 0,
+  daysBeforeDue: 3,
+  channels: ["email", "sms"],
+  lastRunAt: null,
+  nextRunAt: null,
+};
+
 export default function BillingPage() {
   const [bills, setBills] = useState<Bill[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
@@ -103,6 +129,14 @@ export default function BillingPage() {
   const [confirmBill, setConfirmBill] = useState<Bill | null>(null);
   const [sendEmailChannel, setSendEmailChannel] = useState(true);
   const [sendSmsChannel, setSendSmsChannel] = useState(true);
+
+  // ── Auto-Reminder Schedule State ────────────────────────────────────────────
+  const [scheduleConfig, setScheduleConfig] = useState<ReminderScheduleConfig>(DEFAULT_SCHEDULE);
+  const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduleExpanded, setScheduleExpanded] = useState(false);
+  // Local editable copy (only saved when user clicks Save)
+  const [editSchedule, setEditSchedule] = useState<ReminderScheduleConfig>(DEFAULT_SCHEDULE);
 
   useEffect(() => {
     if (confirmBill) {
@@ -123,6 +157,45 @@ export default function BillingPage() {
       toast.error(error instanceof Error ? error.message : "Failed to load billing history.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadScheduleConfig() {
+    setScheduleLoading(true);
+    try {
+      const res = await fetch("/api/billing/reminders/settings", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to load schedule.");
+      setScheduleConfig(data.config);
+      setEditSchedule(data.config);
+    } catch {
+      // Non-fatal — use defaults silently
+    } finally {
+      setScheduleLoading(false);
+    }
+  }
+
+  async function saveSchedule() {
+    setScheduleSaving(true);
+    try {
+      const res = await fetch("/api/billing/reminders/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editSchedule),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Save failed.");
+      setScheduleConfig(data.config);
+      setEditSchedule(data.config);
+      toast.success(
+        data.config.enabled
+          ? `✅ Auto-reminders enabled — daily at ${String(data.config.hour).padStart(2, "0")}:${String(data.config.minute).padStart(2, "0")} PHT, ${data.config.daysBeforeDue} day(s) before due.`
+          : "Auto-reminders disabled."
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save schedule.");
+    } finally {
+      setScheduleSaving(false);
     }
   }
 
@@ -242,6 +315,7 @@ export default function BillingPage() {
 
   useEffect(() => {
     void loadBillingData();
+    void loadScheduleConfig();
   }, []);
 
   const monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -465,7 +539,7 @@ export default function BillingPage() {
         description="Live customer subscription status tracking, due-date alert dispatch controls, and collection turnaround health."
         actions={
           <>
-            <Button variant="outline" onClick={() => void loadBillingData()} disabled={loading}>
+            <Button variant="outline" onClick={() => { void loadBillingData(); void loadScheduleConfig(); }} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} /> Refresh
             </Button>
             <Button
@@ -474,8 +548,8 @@ export default function BillingPage() {
               disabled={sendingReminders || loading}
               className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
             >
-              <Mail className={`h-4 w-4 ${sendingReminders ? "animate-pulse" : ""}`} />
-              {sendingReminders ? "Sending..." : "Send Reminders"}
+              <Send className={`h-4 w-4 ${sendingReminders ? "animate-pulse" : ""}`} />
+              {sendingReminders ? "Sending..." : "Send Now"}
             </Button>
           </>
         }
@@ -630,6 +704,193 @@ export default function BillingPage() {
               </Card>
             </section>
           )}
+
+          {/* ── Auto-Reminder Schedule Panel ─────────────────────────────── */}
+          <Card className="border-2 border-dashed border-violet-200 dark:border-violet-800/50 bg-violet-50/30 dark:bg-violet-950/10">
+            <div
+              className="flex items-center justify-between px-6 py-4 cursor-pointer select-none"
+              onClick={() => setScheduleExpanded((p) => !p)}
+            >
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center">
+                  <Bell className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Auto-Reminder Schedule</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {scheduleConfig.enabled
+                      ? `● Enabled — runs daily at ${String(scheduleConfig.hour).padStart(2, "0")}:${String(scheduleConfig.minute).padStart(2, "0")} PHT, ${scheduleConfig.daysBeforeDue} day(s) before due`
+                      : "○ Disabled — reminders are manual only"}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {scheduleConfig.enabled && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 rounded-full px-2.5 py-1">
+                    <Zap className="h-2.5 w-2.5" /> AUTO
+                  </span>
+                )}
+                {scheduleExpanded
+                  ? <ChevronUp className="h-4 w-4 text-slate-400" />
+                  : <ChevronDown className="h-4 w-4 text-slate-400" />}
+              </div>
+            </div>
+
+            {scheduleExpanded && (
+              <div className="border-t border-violet-200/60 dark:border-violet-800/40 px-6 pb-6 pt-4">
+                {scheduleLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-400">
+                    <span className="h-4 w-4 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                    Loading schedule...
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    {/* Enable toggle */}
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <div
+                        role="switch"
+                        aria-checked={editSchedule.enabled}
+                        onClick={() => setEditSchedule((p) => ({ ...p, enabled: !p.enabled }))}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                          editSchedule.enabled
+                            ? "bg-violet-600"
+                            : "bg-slate-200 dark:bg-slate-700"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                            editSchedule.enabled ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </div>
+                      <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                        {editSchedule.enabled ? "Auto-send enabled" : "Auto-send disabled"}
+                      </span>
+                    </label>
+
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      {/* Time */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Send Time (PHT)</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            id="schedule-hour"
+                            type="number"
+                            min={0} max={23}
+                            value={editSchedule.hour}
+                            onChange={(e) => setEditSchedule((p) => ({ ...p, hour: Math.min(23, Math.max(0, Number(e.target.value))) }))}
+                            className="w-16 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-violet-500"
+                          />
+                          <span className="text-slate-400 font-bold">:</span>
+                          <input
+                            id="schedule-minute"
+                            type="number"
+                            min={0} max={59}
+                            value={editSchedule.minute}
+                            onChange={(e) => setEditSchedule((p) => ({ ...p, minute: Math.min(59, Math.max(0, Number(e.target.value))) }))}
+                            className="w-16 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-violet-500"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Days before due */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Days Before Due</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            id="schedule-days"
+                            type="number"
+                            min={1} max={30}
+                            value={editSchedule.daysBeforeDue}
+                            onChange={(e) => setEditSchedule((p) => ({ ...p, daysBeforeDue: Math.min(30, Math.max(1, Number(e.target.value))) }))}
+                            className="w-20 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-violet-500"
+                          />
+                          <span className="text-xs text-slate-500">days</span>
+                        </div>
+                      </div>
+
+                      {/* Channels */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Channels</label>
+                        <div className="flex flex-col gap-2">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={editSchedule.channels.includes("email")}
+                              onChange={(e) => setEditSchedule((p) => ({
+                                ...p,
+                                channels: e.target.checked
+                                  ? [...new Set([...p.channels, "email"])]
+                                  : p.channels.filter((c) => c !== "email"),
+                              }))}
+                              className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 text-violet-600 focus:ring-violet-500"
+                            />
+                            <span className="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                              <Mail className="h-3.5 w-3.5 text-slate-400" /> Email
+                            </span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={editSchedule.channels.includes("sms")}
+                              onChange={(e) => setEditSchedule((p) => ({
+                                ...p,
+                                channels: e.target.checked
+                                  ? [...new Set([...p.channels, "sms"])]
+                                  : p.channels.filter((c) => c !== "sms"),
+                              }))}
+                              className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 text-violet-600 focus:ring-violet-500"
+                            />
+                            <span className="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                              <MessageSquare className="h-3.5 w-3.5 text-slate-400" /> SMS
+                            </span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Last/next run info */}
+                    {(scheduleConfig.lastRunAt) && (
+                      <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5">
+                        <Info className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
+                        <span>
+                          Last auto-run:{" "}
+                          <strong className="text-slate-700 dark:text-slate-300">
+                            {new Date(scheduleConfig.lastRunAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}
+                          </strong>
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-3 pt-1">
+                      <Button
+                        className="gap-2 bg-violet-600 hover:bg-violet-700 text-white"
+                        disabled={scheduleSaving || editSchedule.channels.length === 0}
+                        onClick={() => void saveSchedule()}
+                      >
+                        {scheduleSaving ? (
+                          <span className="h-4 w-4 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          <Settings2 className="h-4 w-4" />
+                        )}
+                        {scheduleSaving ? "Saving..." : "Save Schedule"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
+                        disabled={sendingReminders}
+                        onClick={() => void handleSendReminders()}
+                      >
+                        <Send className={`h-4 w-4 ${sendingReminders ? "animate-pulse" : ""}`} />
+                        {sendingReminders ? "Sending..." : "Run Now"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </Card>
 
           {/* Billing Records Grid */}
           <Card>
@@ -949,23 +1210,22 @@ export default function BillingPage() {
 
             {/* Body */}
             <div className="px-6 py-5 space-y-4 max-h-[80vh] overflow-y-auto">
-              {/* Already sent warning */}
+              {/* Previously-sent info note (neutral, not a warning) */}
               {(confirmBill.reminder_sent_at || confirmBill.sms_reminder_sent_at) && (
-                <div className="flex items-start gap-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
-                  <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <div className="flex items-start gap-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 px-4 py-3 text-xs text-slate-600 dark:text-slate-400">
+                  <Info className="h-4 w-4 flex-shrink-0 mt-0.5 text-slate-400" />
                   <div>
-                    <span className="font-semibold block">A reminder has already been sent:</span>
+                    <span className="font-semibold block text-slate-700 dark:text-slate-300">Previously sent:</span>
                     {confirmBill.reminder_sent_at && (
                       <span className="block mt-0.5">
-                        • Email sent: <strong>{new Date(confirmBill.reminder_sent_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</strong>
+                        • Email: <strong>{new Date(confirmBill.reminder_sent_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</strong>
                       </span>
                     )}
                     {confirmBill.sms_reminder_sent_at && (
                       <span className="block mt-0.5">
-                        • SMS sent: <strong>{new Date(confirmBill.sms_reminder_sent_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</strong>
+                        • SMS: <strong>{new Date(confirmBill.sms_reminder_sent_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</strong>
                       </span>
                     )}
-                    <span className="block mt-1 font-medium">Re-sending will re-notify the customer.</span>
                   </div>
                 </div>
               )}
