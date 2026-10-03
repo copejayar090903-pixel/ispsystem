@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/src/lib/supabase";
 
 export const runtime = "nodejs";
@@ -7,10 +7,10 @@ export async function GET() {
   try {
     const supabase = createSupabaseServerClient();
 
-    const [customersRes, billsRes, paymentsRes, plansRes] = await Promise.all([
+    const [customersRes, billsRes, paymentsRes, plansRes, expensesRes] = await Promise.all([
       supabase
         .from("customers")
-        .select("id, full_name, account_number, status, plan_id, created_at, due_date, plans(id, plan_name, speed, monthly_fee)")
+        .select("id, full_name, account_number, status, plan_id, created_at, due_date, email, contact_number, plans(id, plan_name, speed, monthly_fee)")
         .throwOnError(),
       supabase
         .from("bills")
@@ -27,12 +27,19 @@ export async function GET() {
         .from("plans")
         .select("id, plan_name, speed, monthly_fee")
         .throwOnError(),
+      supabase
+        .from("expenses")
+        .select("*")
+        .order("billing_year", { ascending: false })
+        .order("billing_month", { ascending: false })
+        .throwOnError(),
     ]);
 
     const customers = customersRes.data || [];
     const bills = billsRes.data || [];
     const payments = paymentsRes.data || [];
     const plans = plansRes.data || [];
+    const expenses = expensesRes.data || [];
 
     const now = new Date();
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -143,6 +150,58 @@ export async function GET() {
       })
       .sort((a: any, b: any) => b.totalOwed - a.totalOwed)
       .slice(0, 20);
+
+    // ─── Outstanding Customers (ALL with unpaid bills) ────────────────────
+    const outstandingCustomers = customers
+      .map((c: any) => {
+        const plan = c.plans as any;
+        const customerBills = bills.filter((b: any) => b.customer_id === c.id && b.status !== "paid");
+        if (customerBills.length === 0) return null;
+        const totalOwed = customerBills.reduce((sum: number, b: any) => sum + Number(b.amount_due || 0), 0);
+        const unpaidMonthsList = customerBills.map((b: any) => ({
+          billing_year: b.billing_year,
+          billing_month: b.billing_month,
+          amount_due: Number(b.amount_due || 0),
+          due_date: b.due_date,
+        }));
+        return {
+          id: c.id,
+          full_name: c.full_name,
+          account_number: c.account_number,
+          email: c.email || null,
+          contact_number: c.contact_number || null,
+          status: c.status,
+          plan_name: plan?.plan_name || "No Plan",
+          monthly_fee: Number(plan?.monthly_fee || 0),
+          totalOwed,
+          unpaidMonths: customerBills.length,
+          unpaidMonthsList,
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => b.totalOwed - a.totalOwed);
+
+    // ─── Monthly Expenses ─────────────────────────────────────────────────
+    const expensesByMonth: Record<string, { total: number; items: any[] }> = {};
+    expenses.forEach((e: any) => {
+      const key = `${e.billing_year}-${String(e.billing_month).padStart(2, "0")}`;
+      if (!expensesByMonth[key]) expensesByMonth[key] = { total: 0, items: [] };
+      expensesByMonth[key].total += Number(e.amount || 0);
+      expensesByMonth[key].items.push(e);
+    });
+
+    // ─── Revenue with Expenses + Net Profit ────────────────────────────────
+    const revenueWithExpenses = Object.entries(revenueByMonth).map(([key, m]) => {
+      const monthExpenses = expensesByMonth[key]?.total || 0;
+      return {
+        month: m.label,
+        key,
+        collected: m.collected,
+        invoiced: m.invoiced,
+        expenses: monthExpenses,
+        netProfit: m.collected - monthExpenses,
+      };
+    });
 
     // ─── Customer Growth by Month (last 12 months) ───────────────────────
     const growthByMonth: Record<string, number> = {};
@@ -286,22 +345,103 @@ export async function GET() {
     const customerPaymentHistory = Object.values(customerHistoryMap)
       .sort((a, b_) => a.customer.localeCompare(b_.customer));
 
+    // ─── Summary Expenses ──────────────────────────────────────────────────
+    const currentMonthKey = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
+    const currentMonthExpenses = expensesByMonth[currentMonthKey]?.total || 0;
+    const totalExpenses12m = Object.values(expensesByMonth).reduce((s, e) => s + e.total, 0);
+
+    const enhancedSummary = {
+      ...summary,
+      currentMonthExpenses,
+      currentMonthNetProfit: summary.currentMonthRevenue - currentMonthExpenses,
+      totalExpenses12m,
+      totalNetProfit12m: summary.totalCollected - totalExpenses12m,
+    };
+
     return NextResponse.json({
-      summary,
+      summary: enhancedSummary,
       customerStatusData,
       planDistributionData,
       revenueTrendData,
       paymentMethodData,
       collectionEfficiencyData,
       overdueCustomers,
+      outstandingCustomers,
       customerGrowthData,
       recentPaidBills,
       customerPaymentHistory,
+      revenueWithExpenses,
+      expensesByMonth,
+      expenses,
     });
   } catch (error) {
     console.error("[GET Reports Route Error]:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load reports." },
+      { status: 500 }
+    );
+  }
+}
+
+// POST /api/reports — Action endpoint to add expenses or execute report operations
+export async function POST(req: NextRequest) {
+  try {
+    const supabase = createSupabaseServerClient();
+    const body = await req.json();
+
+    const { name, category, amount, billing_year, billing_month, notes } = body;
+
+    const numAmount = Number(amount);
+    const numYear = Number(billing_year);
+    const numMonth = Number(billing_month);
+
+    if (!name || typeof name !== "string" || name.trim() === "") {
+      return NextResponse.json(
+        { error: "Expense name is required." },
+        { status: 400 }
+      );
+    }
+
+    if (isNaN(numAmount) || numAmount < 0) {
+      return NextResponse.json(
+        { error: "Amount must be a valid number greater than or equal to 0." },
+        { status: 400 }
+      );
+    }
+
+    if (!numYear || isNaN(numYear) || !numMonth || isNaN(numMonth) || numMonth < 1 || numMonth > 12) {
+      return NextResponse.json(
+        { error: "Valid billing year and month (1-12) are required." },
+        { status: 400 }
+      );
+    }
+
+    const { data, error } = await supabase
+      .from("expenses")
+      .insert({
+        name: name.trim(),
+        category: category || "operational",
+        amount: numAmount,
+        billing_year: numYear,
+        billing_month: numMonth,
+        notes: notes ? String(notes).trim() : null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("[POST Expenses Supabase Error]:", error);
+      return NextResponse.json(
+        { error: error.message || "Database failed to save expense." },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ success: true, expense: data }, { status: 201 });
+  } catch (error) {
+    console.error("[POST Reports Error]:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to process request." },
       { status: 500 }
     );
   }

@@ -55,6 +55,7 @@ export class MikrotikError extends Error {
     public code:
       | "CONFIG_MISSING"
       | "CONNECTION_FAILED"
+      | "CONNECTION_TIMEOUT"
       | "LOGIN_FAILED"
       | "NOT_FOUND"
       | "UNKNOWN",
@@ -70,23 +71,76 @@ function getMikrotikConfig() {
   const host = process.env.MIKROTIK_HOST;
   const user = process.env.MIKROTIK_USER;
   const password = process.env.MIKROTIK_PASS;
-  const port = Number(process.env.MIKROTIK_PORT ?? 8728);
+  const port = Number(process.env.MIKROTIK_PORT ?? 10251);
+  const timeout = Number(process.env.MIKROTIK_TIMEOUT ?? 15);
 
   if (!host || !user || password === undefined || Number.isNaN(port)) {
     throw new MikrotikError(
-      "Cannot connect to MikroTik. Check VPN connection.",
+      "MikroTik API credentials not configured. Set MIKROTIK_HOST, MIKROTIK_PORT, MIKROTIK_USER, and MIKROTIK_PASS.",
       "CONFIG_MISSING",
     );
   }
 
-  return { host, user, password, port };
+  return { host, user, password, port, timeout: Number.isNaN(timeout) ? 15 : timeout };
 }
 
 function normalizeMikrotikError(error: unknown): MikrotikError {
   console.error("[MikroTik API Connection Error Details]:", error);
+
   const message = error instanceof Error ? error.message : String(error);
   const lowerMessage = message.toLowerCase();
 
+  // node-routeros RosException often has an empty message with the real
+  // error stored in the `errno` property (libuv error codes).
+  const errno = (error as Record<string, unknown>)?.errno;
+
+  // ── Check errno first (Windows libuv codes) ────────────────────────────
+  if (typeof errno === "number") {
+    // ETIMEDOUT: -4039 (Windows) / -110 (Linux)
+    if (errno === -4039 || errno === -110) {
+      return new MikrotikError(
+        "MikroTik connection timed out. The router or AccessTunnel may be unreachable.",
+        "CONNECTION_TIMEOUT",
+      );
+    }
+    // ECONNREFUSED: -4078 (Windows) / -111 (Linux)
+    if (errno === -4078 || errno === -111) {
+      return new MikrotikError(
+        "Connection refused by AccessTunnel (port 10251). Verify the AccessTunnel port mapping is active and the router is connected.",
+        "CONNECTION_FAILED",
+      );
+    }
+    // EHOSTUNREACH: -4062 (Windows) / -113 (Linux)
+    if (errno === -4062 || errno === -113) {
+      return new MikrotikError(
+        "MikroTik host unreachable. Check network connectivity to AccessTunnel.",
+        "CONNECTION_FAILED",
+      );
+    }
+    // ECONNRESET: -4077 (Windows) / -104 (Linux)
+    if (errno === -4077 || errno === -104) {
+      return new MikrotikError(
+        "Connection reset by AccessTunnel (port 10251). The tunnel may not be forwarding to the router's API port, or the router's API service is not running.",
+        "CONNECTION_FAILED",
+      );
+    }
+    // ENETUNREACH: -4059 (Windows) / -101 (Linux)
+    if (errno === -4059 || errno === -101) {
+      return new MikrotikError(
+        "Network unreachable. Check your internet connection.",
+        "CONNECTION_FAILED",
+      );
+    }
+    // ENOTFOUND (DNS): -4058 (Windows) / -3008 (Linux via c-ares)
+    if (errno === -4058 || errno === -3008) {
+      return new MikrotikError(
+        "DNS lookup failed for AccessTunnel hostname. Check MIKROTIK_HOST value.",
+        "CONNECTION_FAILED",
+      );
+    }
+  }
+
+  // ── Check message strings (fallback) ───────────────────────────────────
   if (
     lowerMessage.includes("cannot log in") ||
     lowerMessage.includes("invalid user name") ||
@@ -97,8 +151,14 @@ function normalizeMikrotikError(error: unknown): MikrotikError {
     return new MikrotikError("Invalid MikroTik API credentials.", "LOGIN_FAILED");
   }
 
+  if (lowerMessage.includes("timeout")) {
+    return new MikrotikError(
+      "MikroTik connection timed out. The router or AccessTunnel may be unreachable.",
+      "CONNECTION_TIMEOUT",
+    );
+  }
+
   if (
-    lowerMessage.includes("timeout") ||
     lowerMessage.includes("econnrefused") ||
     lowerMessage.includes("ehostunreach") ||
     lowerMessage.includes("enetunreach") ||
@@ -106,7 +166,7 @@ function normalizeMikrotikError(error: unknown): MikrotikError {
     lowerMessage.includes("connect")
   ) {
     return new MikrotikError(
-      "Cannot connect to MikroTik. Check VPN connection.",
+      "Cannot connect to MikroTik. Check AccessTunnel VPN connection.",
       "CONNECTION_FAILED",
     );
   }
@@ -145,25 +205,30 @@ async function findPPPoESecret(connection: RouterConnection, username: string) {
   return account;
 }
 
-// Touch to clear compile cache
 export async function connectMikrotik() {
   const config = getMikrotikConfig();
+
+  console.log(`[MikroTik] Connecting to ${config.host}:${config.port} (timeout: ${config.timeout}s)`);
+
   const connection = new RouterOSAPI({
     host: config.host,
     user: config.user,
     password: config.password,
     port: config.port,
-    timeout: 10,
+    timeout: config.timeout,
   });
 
   // Attach error listener to prevent uncaught exceptions from background socket events
   connection.on("error", (error) => {
-    console.error("[RouterOS API Client Connection Error]:", error);
+    console.error("[MikroTik] Background socket error:", error);
   });
 
   try {
-    return await connection.connect();
+    const result = await connection.connect();
+    console.log(`[MikroTik] Connection successful`);
+    return result;
   } catch (error) {
+    console.error(`[MikroTik] Connection failed to ${config.host}:${config.port}`);
     throw normalizeMikrotikError(error);
   }
 }

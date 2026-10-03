@@ -11,6 +11,7 @@ import {
   Wallet, BadgePercent, Calendar, FileSpreadsheet, FileText,
   Download, CreditCard, Activity, CheckCircle2, XCircle, Clock, Loader2,
   DollarSign, ArrowUpRight, ArrowDownRight, Search, History,
+  Bell, Send, Minus, Plus, Trash2, Receipt, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/src/components/admin/page-header";
@@ -34,6 +35,10 @@ type ReportData = {
     currentMonthRevenue: number;
     currentMonthName: string;
     currentYear: number;
+    currentMonthExpenses: number;
+    currentMonthNetProfit: number;
+    totalExpenses12m: number;
+    totalNetProfit12m: number;
   };
   customerStatusData: { name: string; value: number }[];
   planDistributionData: { name: string; customers: number; revenue: number; speed: string }[];
@@ -48,6 +53,24 @@ type ReportData = {
     plan_name: string;
     totalOwed: number;
     unpaidMonths: number;
+  }[];
+  outstandingCustomers: {
+    id: string;
+    full_name: string;
+    account_number: string;
+    email: string | null;
+    contact_number: string | null;
+    status: string;
+    plan_name: string;
+    monthly_fee: number;
+    totalOwed: number;
+    unpaidMonths: number;
+    unpaidMonthsList: {
+      billing_year: number;
+      billing_month: number;
+      amount_due: number;
+      due_date: string;
+    }[];
   }[];
   customerGrowthData: { month: string; newCustomers: number; totalCustomers: number }[];
   recentPaidBills: {
@@ -78,6 +101,25 @@ type ReportData = {
       reference_number: string | null;
     }>;
   }>;
+  revenueWithExpenses: {
+    month: string;
+    key: string;
+    collected: number;
+    invoiced: number;
+    expenses: number;
+    netProfit: number;
+  }[];
+  expensesByMonth: Record<string, { total: number; items: any[] }>;
+  expenses: {
+    id: string;
+    name: string;
+    category: string;
+    amount: number;
+    billing_year: number;
+    billing_month: number;
+    notes: string | null;
+    created_at: string;
+  }[];
 };
 
 // ─── Color Palettes ──────────────────────────────────────────────────────────
@@ -151,6 +193,8 @@ function KpiCard({
   );
 }
 
+const FULL_MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
 export default function ReportsPage() {
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -161,6 +205,146 @@ export default function ReportsPage() {
   const [billsSearch, setBillsSearch] = useState("");
   const [billsPage, setBillsPage] = useState(1);
   const BILLS_PER_PAGE = 50;
+
+  // Outstanding / Reminder state
+  const [outstandingSearch, setOutstandingSearch] = useState("");
+  const [sendingReminder, setSendingReminder] = useState<Record<string, boolean>>({});
+
+  // Expense form state
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [expenseName, setExpenseName] = useState("");
+  const [expenseCategory, setExpenseCategory] = useState("operational");
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseMonth, setExpenseMonth] = useState(new Date().getMonth() + 1);
+  const [expenseYear, setExpenseYear] = useState(new Date().getFullYear());
+  const [expenseNotes, setExpenseNotes] = useState("");
+  const [addingExpense, setAddingExpense] = useState(false);
+  const [deletingExpense, setDeletingExpense] = useState<string | null>(null);
+
+  // Send reminder to a single customer
+  const handleSendReminder = async (customerId: string, customerName: string) => {
+    setSendingReminder((prev) => ({ ...prev, [customerId]: true }));
+    try {
+      const res = await fetch(`/api/billing/reminders/${customerId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channels: ["email", "sms"] }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to send reminder.");
+      toast.success(`Reminder sent to ${customerName}`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to send reminder.");
+    } finally {
+      setSendingReminder((prev) => ({ ...prev, [customerId]: false }));
+    }
+  };
+
+  // Add expense
+  const handleAddExpense = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!expenseName || !expenseName.trim()) {
+      toast.error("Expense name is required.");
+      return;
+    }
+    const numAmount = parseFloat(expenseAmount);
+    if (isNaN(numAmount) || numAmount < 0) {
+      toast.error("Please enter a valid amount greater than or equal to 0.");
+      return;
+    }
+
+    setAddingExpense(true);
+    try {
+      const payload = {
+        name: expenseName.trim(),
+        category: expenseCategory,
+        amount: numAmount,
+        billing_year: Number(expenseYear),
+        billing_month: Number(expenseMonth),
+        notes: expenseNotes.trim() || null,
+      };
+
+      let res = await fetch("/api/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.status === 404 || res.status === 405) {
+        res = await fetch("/api/reports", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+
+      const contentType = res.headers.get("content-type") || "";
+      let json: any = {};
+      if (contentType.includes("application/json")) {
+        json = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(
+          res.status === 404 || res.status === 405
+            ? "New API route not loaded by dev server yet. Please restart 'npm run dev' terminal."
+            : `Server returned non-JSON response (${res.status}): ${text.slice(0, 100)}`
+        );
+      }
+
+      if (!res.ok) throw new Error(json.error || "Failed to add expense.");
+      
+      toast.success(`Expense "${expenseName.trim()}" added successfully.`);
+      setExpenseName("");
+      setExpenseAmount("");
+      setExpenseNotes("");
+      setShowExpenseForm(false);
+
+      // Refresh reports
+      const reloadRes = await fetch("/api/reports");
+      if (reloadRes.ok) {
+        const contentTypeReload = reloadRes.headers.get("content-type") || "";
+        if (contentTypeReload.includes("application/json")) {
+          const reloadJson = await reloadRes.json();
+          setData(reloadJson);
+        }
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to add expense.");
+    } finally {
+      setAddingExpense(false);
+    }
+  };
+
+  // Delete expense
+  const handleDeleteExpense = async (id: string) => {
+    setDeletingExpense(id);
+    try {
+      const res = await fetch(`/api/expenses?id=${id}`, { method: "DELETE" });
+      const contentType = res.headers.get("content-type") || "";
+      let json: any = {};
+      if (contentType.includes("application/json")) {
+        json = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(`Server returned non-JSON response (${res.status}): ${text.slice(0, 100)}`);
+      }
+      if (!res.ok) throw new Error(json.error || "Failed to delete expense.");
+      toast.success("Expense deleted.");
+      // Refresh reports
+      const reloadRes = await fetch("/api/reports");
+      if (reloadRes.ok) {
+        const contentTypeReload = reloadRes.headers.get("content-type") || "";
+        if (contentTypeReload.includes("application/json")) {
+          const reloadJson = await reloadRes.json();
+          setData(reloadJson);
+        }
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete expense.");
+    } finally {
+      setDeletingExpense(null);
+    }
+  };
 
   useEffect(() => {
     async function fetchReports() {
@@ -211,9 +395,17 @@ export default function ReportsPage() {
         title="Reports & Analytics"
         description={`Detailed data insights for ${summary.currentMonthName} ${summary.currentYear} — revenue, collections, customers, and billing performance.`}
         actions={
-          <Button onClick={() => toast.info("Export feature coming soon.")}>
-            <Download className="h-4 w-4" /> Export All
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setShowExpenseForm(true)}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-semibold gap-1.5 shadow-sm"
+            >
+              <Plus className="h-4 w-4" /> Add Expense
+            </Button>
+            <Button variant="outline" onClick={() => toast.info("Export feature coming soon.")}>
+              <Download className="h-4 w-4" /> Export All
+            </Button>
+          </div>
         }
       />
 
@@ -249,6 +441,40 @@ export default function ReportsPage() {
           icon={<BadgePercent className="h-5 w-5" />}
           color={summary.collectionRate >= 75 ? "green" : summary.collectionRate >= 50 ? "amber" : "red"}
           trend={summary.collectionRate >= 75 ? "up" : "down"}
+        />
+      </section>
+
+      {/* ─── KPI Row 2: Expenses & Net Profit ─────────────────────────────── */}
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <KpiCard
+          title={`${summary.currentMonthName} Expenses`}
+          value={formatCurrency(summary.currentMonthExpenses)}
+          sub="Operational costs this month"
+          icon={<Receipt className="h-5 w-5" />}
+          color="amber"
+        />
+        <KpiCard
+          title={`${summary.currentMonthName} Net Profit`}
+          value={formatCurrency(summary.currentMonthNetProfit)}
+          sub={`Revenue ${formatCurrency(summary.currentMonthRevenue)} − Costs ${formatCurrency(summary.currentMonthExpenses)}`}
+          icon={<TrendingUp className="h-5 w-5" />}
+          color={summary.currentMonthNetProfit >= 0 ? "green" : "red"}
+          trend={summary.currentMonthNetProfit >= 0 ? "up" : "down"}
+        />
+        <KpiCard
+          title="12-Month Total Expenses"
+          value={formatCurrency(summary.totalExpenses12m)}
+          sub="All tracked costs over 12 months"
+          icon={<Minus className="h-5 w-5" />}
+          color="amber"
+        />
+        <KpiCard
+          title="12-Month Net Profit"
+          value={formatCurrency(summary.totalNetProfit12m)}
+          sub={`Collected ${formatCurrency(summary.totalCollected)} − Costs ${formatCurrency(summary.totalExpenses12m)}`}
+          icon={<DollarSign className="h-5 w-5" />}
+          color={summary.totalNetProfit12m >= 0 ? "green" : "red"}
+          trend={summary.totalNetProfit12m >= 0 ? "up" : "down"}
         />
       </section>
 
@@ -358,14 +584,17 @@ export default function ReportsPage() {
                     <th className="py-2.5 px-3 text-right font-semibold text-slate-400 uppercase tracking-wider">Invoiced</th>
                     <th className="py-2.5 px-3 text-right font-semibold text-slate-400 uppercase tracking-wider">Collected</th>
                     <th className="py-2.5 px-3 text-right font-semibold text-slate-400 uppercase tracking-wider">Outstanding</th>
+                    <th className="py-2.5 px-3 text-right font-semibold text-amber-500 uppercase tracking-wider">Expenses</th>
+                    <th className="py-2.5 px-3 text-right font-semibold text-blue-500 uppercase tracking-wider">Net Profit</th>
                     <th className="py-2.5 px-3 text-right font-semibold text-slate-400 uppercase tracking-wider">Rate</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {[...data.revenueTrendData].reverse().map((row, idx) => {
+                  {[...data.revenueWithExpenses].reverse().map((row, idx) => {
                     const outstanding = row.invoiced - row.collected;
-                    const isGood = row.efficiency >= 75;
-                    const isMid = row.efficiency >= 50;
+                    const efficiency = row.invoiced > 0 ? Math.round((row.collected / row.invoiced) * 100) : 0;
+                    const isGood = efficiency >= 75;
+                    const isMid = efficiency >= 50;
                     return (
                       <tr
                         key={row.month}
@@ -394,6 +623,20 @@ export default function ReportsPage() {
                         }`}>
                           {outstanding > 0 ? formatCurrency(outstanding) : "—"}
                         </td>
+                        <td className={`py-2.5 px-3 text-right font-semibold ${
+                          row.expenses > 0
+                            ? "text-amber-600 dark:text-amber-400"
+                            : "text-slate-400"
+                        }`}>
+                          {row.expenses > 0 ? formatCurrency(row.expenses) : "—"}
+                        </td>
+                        <td className={`py-2.5 px-3 text-right font-bold ${
+                          row.netProfit >= 0
+                            ? "text-blue-600 dark:text-blue-400"
+                            : "text-rose-600 dark:text-rose-400"
+                        }`}>
+                          {row.collected > 0 || row.expenses > 0 ? formatCurrency(row.netProfit) : "—"}
+                        </td>
                         <td className="py-2.5 px-3 text-right">
                           {row.invoiced > 0 ? (
                             <span className={`inline-flex items-center gap-0.5 font-bold ${
@@ -406,7 +649,7 @@ export default function ReportsPage() {
                               {isGood
                                 ? <ArrowUpRight className="h-3 w-3" />
                                 : <ArrowDownRight className="h-3 w-3" />}
-                              {row.efficiency}%
+                              {efficiency}%
                             </span>
                           ) : (
                             <span className="text-slate-300 dark:text-slate-600">—</span>
@@ -420,20 +663,26 @@ export default function ReportsPage() {
                   <tr className="border-t-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
                     <td className="py-3 px-3 font-black text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">Total</td>
                     <td className="py-3 px-3 text-right font-black text-slate-700 dark:text-slate-300">
-                      {formatCurrency(data.revenueTrendData.reduce((s, m) => s + m.invoiced, 0))}
+                      {formatCurrency(data.revenueWithExpenses.reduce((s, m) => s + m.invoiced, 0))}
                     </td>
                     <td className="py-3 px-3 text-right font-black text-emerald-600 dark:text-emerald-400">
-                      {formatCurrency(data.revenueTrendData.reduce((s, m) => s + m.collected, 0))}
+                      {formatCurrency(data.revenueWithExpenses.reduce((s, m) => s + m.collected, 0))}
                     </td>
                     <td className="py-3 px-3 text-right font-black text-rose-500 dark:text-rose-400">
                       {formatCurrency(
-                        data.revenueTrendData.reduce((s, m) => s + (m.invoiced - m.collected), 0)
+                        data.revenueWithExpenses.reduce((s, m) => s + (m.invoiced - m.collected), 0)
                       )}
+                    </td>
+                    <td className="py-3 px-3 text-right font-black text-amber-600 dark:text-amber-400">
+                      {formatCurrency(data.revenueWithExpenses.reduce((s, m) => s + m.expenses, 0))}
+                    </td>
+                    <td className="py-3 px-3 text-right font-black text-blue-600 dark:text-blue-400">
+                      {formatCurrency(data.revenueWithExpenses.reduce((s, m) => s + m.netProfit, 0))}
                     </td>
                     <td className="py-3 px-3 text-right font-black text-slate-700 dark:text-slate-300">
                       {(() => {
-                        const totalInv = data.revenueTrendData.reduce((s, m) => s + m.invoiced, 0);
-                        const totalCol = data.revenueTrendData.reduce((s, m) => s + m.collected, 0);
+                        const totalInv = data.revenueWithExpenses.reduce((s, m) => s + m.invoiced, 0);
+                        const totalCol = data.revenueWithExpenses.reduce((s, m) => s + m.collected, 0);
                         return totalInv > 0 ? `${Math.round((totalCol / totalInv) * 100)}%` : "—";
                       })()}
                     </td>
@@ -830,6 +1079,241 @@ export default function ReportsPage() {
         </Card>
       )}
 
+      {/* ─── Outstanding Customers (All with Unpaid Bills) ─────────────────── */}
+      {data.outstandingCustomers && data.outstandingCustomers.length > 0 && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                <Bell className="h-4 w-4" />
+                Outstanding Balances &amp; Payment Reminders
+                <span className="ml-1 inline-flex items-center justify-center h-5 px-2 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-bold">
+                  {data.outstandingCustomers.length}
+                </span>
+              </CardTitle>
+              <CardDescription>All customers with unpaid bills — send payment reminders per customer</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Search bar */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search by customer name or account number..."
+                value={outstandingSearch}
+                onChange={(e) => setOutstandingSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+              />
+            </div>
+
+            {/* Table */}
+            {(() => {
+              const q = outstandingSearch.trim().toLowerCase();
+              const filtered = q
+                ? data.outstandingCustomers.filter((c) =>
+                    c.full_name.toLowerCase().includes(q) ||
+                    c.account_number.includes(q)
+                  )
+                : data.outstandingCustomers;
+
+              const totalOwedAll = filtered.reduce((s, c) => s + c.totalOwed, 0);
+
+              return (
+                <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
+                        <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Customer</th>
+                        <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Account #</th>
+                        <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Status</th>
+                        <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Plan</th>
+                        <th className="py-2.5 px-3 text-center font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Unpaid</th>
+                        <th className="py-2.5 px-3 text-right font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Owed</th>
+                        <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Contact</th>
+                        <th className="py-2.5 px-3 text-center font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Reminder</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="py-10 text-center text-slate-400">No outstanding customers match your search.</td>
+                        </tr>
+                      ) : filtered.map((cust, idx) => (
+                        <tr key={cust.id} className={`border-b border-slate-50 dark:border-slate-900 hover:bg-amber-50/30 dark:hover:bg-amber-500/5 transition-colors ${idx % 2 === 0 ? "" : "bg-slate-50/40 dark:bg-slate-900/20"}`}>
+                          <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white">{cust.full_name}</td>
+                          <td className="py-2.5 px-3 font-mono text-slate-500 dark:text-slate-400">{cust.account_number}</td>
+                          <td className="py-2.5 px-3">
+                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold capitalize
+                              ${cust.status === "overdue" ? "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" :
+                                cust.status === "disconnected" ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" :
+                                cust.status === "suspended" ? "bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300" :
+                                cust.status === "active" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" :
+                                "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}
+                            >
+                              {STATUS_ICONS[cust.status]} {cust.status}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">{cust.plan_name}</td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span className={`font-bold ${cust.unpaidMonths >= 3 ? "text-rose-600 dark:text-rose-400" : "text-amber-600 dark:text-amber-400"}`}>
+                              {cust.unpaidMonths}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-black text-rose-600 dark:text-rose-400">
+                            {formatCurrency(cust.totalOwed)}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <div className="flex flex-col text-[10px] leading-tight text-slate-500 dark:text-slate-400">
+                              {cust.email && <span className="truncate max-w-[120px]">{cust.email}</span>}
+                              {cust.contact_number && <span>{cust.contact_number}</span>}
+                              {!cust.email && !cust.contact_number && <span className="text-slate-300">—</span>}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <button
+                              disabled={sendingReminder[cust.id] || (!cust.email && !cust.contact_number)}
+                              onClick={() => handleSendReminder(cust.id, cust.full_name)}
+                              className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all duration-200 ${
+                                sendingReminder[cust.id]
+                                  ? "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 cursor-wait"
+                                  : !cust.email && !cust.contact_number
+                                  ? "bg-slate-100 text-slate-300 dark:bg-slate-800 dark:text-slate-600 cursor-not-allowed"
+                                  : "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:hover:bg-amber-500/30 cursor-pointer"
+                              }`}
+                              title={
+                                !cust.email && !cust.contact_number
+                                  ? "No email or phone number on file"
+                                  : "Send billing reminder via email & SMS"
+                              }
+                            >
+                              {sendingReminder[cust.id] ? (
+                                <><Loader2 className="h-3 w-3 animate-spin" /> Sending...</>
+                              ) : (
+                                <><Send className="h-3 w-3" /> Send</>
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    {filtered.length > 0 && (
+                      <tfoot>
+                        <tr className="border-t-2 border-slate-200 dark:border-slate-700 bg-amber-50/60 dark:bg-amber-500/5">
+                          <td colSpan={5} className="py-3 px-3 font-black text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
+                            {filtered.length} customer{filtered.length !== 1 ? "s" : ""} with outstanding balances
+                          </td>
+                          <td className="py-3 px-3 text-right font-black text-rose-600 dark:text-rose-400">
+                            {formatCurrency(totalOwedAll)}
+                          </td>
+                          <td colSpan={2}></td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ─── Monthly Expenses Management ────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+              <Receipt className="h-4 w-4" />
+              Monthly Expenses / Costs
+              <span className="ml-1 inline-flex items-center justify-center h-5 px-2 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-bold">
+                {data.expenses.length}
+              </span>
+            </CardTitle>
+            <CardDescription>Track operational costs (bandwidth, electricity, rent, etc.) — deducted from collections to show net profit</CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowExpenseForm(true)}
+            className="gap-1.5 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700/60 hover:bg-amber-50 dark:hover:bg-amber-950/50"
+          >
+            <Plus className="h-4 w-4" /> Add Expense
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Expenses list */}
+          {data.expenses.length === 0 ? (
+            <div className="py-10 text-center text-slate-400 text-sm">
+              No expenses tracked yet. Click "Add Expense" to start tracking costs.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
+                    <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Name</th>
+                    <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Category</th>
+                    <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Period</th>
+                    <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider hidden md:table-cell">Notes</th>
+                    <th className="py-2.5 px-3 text-right font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Amount</th>
+                    <th className="py-2.5 px-3 text-center font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-16"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.expenses.map((exp, idx) => (
+                    <tr
+                      key={exp.id}
+                      className={`border-b border-slate-50 dark:border-slate-900 hover:bg-amber-50/30 dark:hover:bg-amber-500/5 transition-colors ${idx % 2 === 0 ? "" : "bg-slate-50/40 dark:bg-slate-900/20"}`}
+                    >
+                      <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white">{exp.name}</td>
+                      <td className="py-2.5 px-3">
+                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                          {exp.category}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">
+                        {FULL_MONTH_NAMES[exp.billing_month - 1]} {exp.billing_year}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-400 hidden md:table-cell truncate max-w-[200px]">
+                        {exp.notes || "—"}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-black text-amber-600 dark:text-amber-400">
+                        {formatCurrency(Number(exp.amount))}
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <button
+                          disabled={deletingExpense === exp.id}
+                          onClick={() => handleDeleteExpense(exp.id)}
+                          className="inline-flex items-center justify-center h-7 w-7 rounded-lg text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-500/15 transition-colors disabled:opacity-50"
+                          title="Delete expense"
+                        >
+                          {deletingExpense === exp.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-slate-200 dark:border-slate-700 bg-amber-50/60 dark:bg-amber-500/5">
+                    <td colSpan={4} className="py-3 px-3 font-black text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
+                      {data.expenses.length} expense{data.expenses.length !== 1 ? "s" : ""} total
+                    </td>
+                    <td className="py-3 px-3 text-right font-black text-amber-700 dark:text-amber-300">
+                      {formatCurrency(data.expenses.reduce((s, e) => s + Number(e.amount), 0))}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* ─── All Paid Bills ────────────────────────────────────────────────── */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
@@ -1143,6 +1627,163 @@ export default function ReportsPage() {
           </Card>
         );
       })()}
+
+      {/* ─── Add Expense Dialog Modal ────────────────────────────────────────── */}
+      {showExpenseForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div
+            className="fixed inset-0"
+            onClick={() => {
+              if (!addingExpense) setShowExpenseForm(false);
+            }}
+          />
+          <Card className="relative z-10 w-full max-w-lg shadow-2xl border-amber-200/50 dark:border-amber-500/20 bg-white dark:bg-slate-900 overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 bg-amber-50/50 dark:bg-amber-500/5">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                  <Receipt className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-base font-bold text-slate-900 dark:text-white">
+                    Add New Expense
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Record operational costs (bandwidth, rent, utilities, etc.)
+                  </CardDescription>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={addingExpense}
+                onClick={() => setShowExpenseForm(false)}
+                className="h-8 w-8 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+
+            <form onSubmit={handleAddExpense}>
+              <CardContent className="space-y-4 pt-5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                    Expense Name <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. PLDT Bandwidth, Office Rent, Electricity"
+                    value={expenseName}
+                    onChange={(e) => setExpenseName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition-all"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                      Category
+                    </label>
+                    <select
+                      value={expenseCategory}
+                      onChange={(e) => setExpenseCategory(e.target.value)}
+                      className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition-all"
+                    >
+                      <option value="operational">Operational</option>
+                      <option value="bandwidth">Bandwidth</option>
+                      <option value="utilities">Utilities</option>
+                      <option value="equipment">Equipment</option>
+                      <option value="salary">Salary</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                      Amount (₱) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={expenseAmount}
+                      onChange={(e) => setExpenseAmount(e.target.value)}
+                      className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition-all font-semibold"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                      Billing Month
+                    </label>
+                    <select
+                      value={expenseMonth}
+                      onChange={(e) => setExpenseMonth(Number(e.target.value))}
+                      className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition-all"
+                    >
+                      {FULL_MONTH_NAMES.map((m, i) => (
+                        <option key={i} value={i + 1}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                      Billing Year
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      value={expenseYear}
+                      onChange={(e) => setExpenseYear(Number(e.target.value))}
+                      className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition-all font-semibold"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                    Notes (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Reference #, invoice details, description..."
+                    value={expenseNotes}
+                    onChange={(e) => setExpenseNotes(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition-all"
+                  />
+                </div>
+              </CardContent>
+
+              <div className="flex items-center justify-end gap-3 p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={addingExpense}
+                  onClick={() => setShowExpenseForm(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={addingExpense}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold gap-2 shadow-md shadow-amber-600/20"
+                >
+                  {addingExpense ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Adding Expense...</>
+                  ) : (
+                    <><Plus className="h-4 w-4" /> Save Expense</>
+                  )}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
     </>
   );
 }
