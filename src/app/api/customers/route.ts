@@ -200,7 +200,10 @@ export async function GET() {
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1; // 1-indexed
 
-    const customersWithPaidStatus = (customers || []).map((customer: any) => {
+    // Exclude soft-deleted customers
+    const nonDeleted = (customers || []).filter((c: any) => c.status !== "deleted" && !c.deleted_at);
+
+    const customersWithPaidStatus = nonDeleted.map((customer: any) => {
       const paidThisMonth = (customer.bills || []).some(
         (bill: any) =>
           bill.billing_year === currentYear &&
@@ -221,6 +224,85 @@ export async function GET() {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to fetch customers.";
 
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    let id = searchParams.get("id");
+
+    if (!id) {
+      try {
+        const body = await request.json();
+        id = body.id;
+      } catch {
+        // No body
+      }
+    }
+
+    if (!id) {
+      return NextResponse.json({ error: "Customer ID is required." }, { status: 400 });
+    }
+
+    const supabase = createSupabaseServerClient();
+
+    // 1. Fetch customer details first to get PPPoE username
+    const { data: customer } = await supabase
+      .from("customers")
+      .select("id, full_name, pppoe_username")
+      .eq("id", id)
+      .single();
+
+    // 2. Perform soft delete
+    const nowIso = new Date().toISOString();
+    let updateError: any = null;
+
+    const { error: fullUpdateErr } = await supabase
+      .from("customers")
+      .update({ status: "deleted", deleted_at: nowIso })
+      .eq("id", id);
+
+    if (fullUpdateErr) {
+      // Fallback in case deleted_at column is not present
+      const { error: statusOnlyErr } = await supabase
+        .from("customers")
+        .update({ status: "deleted" })
+        .eq("id", id);
+      updateError = statusOnlyErr;
+    }
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    // 3. Disable PPPoE secret on MikroTik router if present
+    if (customer?.pppoe_username) {
+      try {
+        const { disablePPPoE, disconnectPPPoE } = await import("@/src/lib/mikrotik");
+        await disablePPPoE(customer.pppoe_username);
+        await disconnectPPPoE(customer.pppoe_username);
+      } catch (err) {
+        console.warn("Could not disable/disconnect PPPoE on router:", err);
+      }
+    }
+
+    // 4. Invalidate caches
+    await cache.del("dashboard:stats");
+    await cache.invalidatePattern("customers:*");
+
+    // 5. Activity log
+    await writeLog({
+      event_type: "customer_deleted",
+      description: `Customer ${customer?.full_name || id} (${customer?.pppoe_username || "N/A"}) was deleted (soft delete).`,
+      pppoe_username: customer?.pppoe_username ?? null,
+      customer_name: customer?.full_name ?? null,
+    });
+
+    return NextResponse.json({ success: true, message: "Customer deleted successfully." });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to delete customer.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

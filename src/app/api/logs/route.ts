@@ -61,3 +61,48 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+    const date = searchParams.get("date"); // e.g. "2026-10-10"
+    const startDate = searchParams.get("startDate");
+    const endDate = searchParams.get("endDate");
+
+    const supabase = createSupabaseServerClient();
+    let query = supabase.from("activity_logs").delete();
+
+    if (id) {
+      query = query.eq("id", id);
+    } else if (date) {
+      // Delete all logs for the full 24-hour day in UTC/local range
+      const startOfDay = new Date(`${date}T00:00:00.000Z`).toISOString();
+      const endOfDay = new Date(`${date}T23:59:59.999Z`).toISOString();
+      query = query.gte("created_at", startOfDay).lte("created_at", endOfDay);
+    } else if (startDate || endDate) {
+      if (startDate) query = query.gte("created_at", startDate);
+      if (endDate) query = query.lte("created_at", endDate);
+    } else {
+      return NextResponse.json(
+        { error: "Must provide 'id', 'date' (YYYY-MM-DD), or 'startDate'/'endDate' parameter." },
+        { status: 400 }
+      );
+    }
+
+    const { data, error, count } = await query.select();
+
+    if (error) throw error;
+
+    return NextResponse.json({
+      success: true,
+      deletedCount: data?.length ?? 0,
+      deletedLogs: data,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to delete logs." },
+      { status: 500 }
+    );
+  }
+}

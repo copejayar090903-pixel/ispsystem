@@ -1,11 +1,12 @@
--- DROP OLD MOCK/MISALIGNED TABLES (Safe to run since database contains no customer data yet)
-DROP TABLE IF EXISTS public.payments CASCADE;
-DROP TABLE IF EXISTS public.billings CASCADE;
-DROP TABLE IF EXISTS public.bills CASCADE;
-DROP TABLE IF EXISTS public.customers CASCADE;
+-- ⚠️  WARNING: The DROP TABLE statements below are DESTRUCTIVE and IRREVERSIBLE!
+-- ⚠️  Only run them if the database truly has no important data.
+-- DROP TABLE IF EXISTS public.payments CASCADE;
+-- DROP TABLE IF EXISTS public.billings CASCADE;
+-- DROP TABLE IF EXISTS public.bills CASCADE;
+-- DROP TABLE IF EXISTS public.customers CASCADE;
 
 -- 1. Recreate Customers Table
-CREATE TABLE public.customers (
+CREATE TABLE IF NOT EXISTS public.customers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   account_number text UNIQUE NOT NULL,
   full_name text NOT NULL,
@@ -17,6 +18,7 @@ CREATE TABLE public.customers (
   pppoe_username text UNIQUE NOT NULL,
   plan_id uuid REFERENCES public.plans(id) ON UPDATE CASCADE,
   status text NOT NULL DEFAULT 'active',
+  deleted_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT timezone('utc', now())
 );
 

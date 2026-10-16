@@ -33,6 +33,9 @@ import {
   Users,
   Wifi,
   WifiOff,
+  Bell,
+  CalendarClock,
+  Send,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/src/components/admin/page-header";
@@ -46,6 +49,16 @@ import { formatCurrency } from "@/src/lib/utils";
 const chartColors = ["#2563eb", "#10b981", "#f59e0b", "#64748b"];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+type DeadlineCustomer = {
+  id: string;
+  full_name: string;
+  account_number: string;
+  pppoe_username: string;
+  due_date: string;
+  contact_number: string | null;
+  days_left: number;
+};
 
 type DashboardData = {
   stats: {
@@ -62,7 +75,7 @@ type DashboardData = {
   paidUnpaidData: Array<{ name: string; value: number }>;
   growthData: Array<{ month: string; customers: number }>;
   planDistributionData: Array<{ name: string; customers: number }>;
-  activityItems: Array<{ title: string; detail: string; time: string; type: string }>;
+  deadlineCustomers: DeadlineCustomer[];
 };
 
 type MikrotikSnapshot = {
@@ -124,6 +137,9 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Customer name mapping for per-client traffic
+  const [customerNameMap, setCustomerNameMap] = useState<Record<string, string>>({});
+
   // MikroTik realtime state
   const [mikrotik, setMikrotik]               = useState<MikrotikRealtimeData | null>(null);
   const [mikrotikHistory, setMikrotikHistory] = useState<MikrotikSnapshot[]>([]);
@@ -131,6 +147,9 @@ export default function DashboardPage() {
   const intervalRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   // Store previous cumulative byte counters to compute throughput
   const prevBytesRef = useRef<{ rxBytes: number; txBytes: number; ts: number } | null>(null);
+
+  // Reminder sending state
+  const [sendingReminder, setSendingReminder] = useState<Record<string, boolean>>({});
 
   // ── Dashboard data ─────────────────────────────────────────────────────────
   async function loadDashboardData() {
@@ -144,6 +163,44 @@ export default function DashboardPage() {
       toast.error(error instanceof Error ? error.message : "Failed to load dashboard stats.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Load customer name map for per-client traffic display
+  async function loadCustomerNames() {
+    try {
+      const res = await fetch("/api/customers", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        const map: Record<string, string> = {};
+        (data.customers || []).forEach((c: any) => {
+          if (c.pppoe_username && c.full_name) {
+            map[c.pppoe_username] = c.full_name;
+          }
+        });
+        setCustomerNameMap(map);
+      }
+    } catch {
+      // Silently fail — usernames will be shown as fallback
+    }
+  }
+
+  // Send deadline reminder
+  async function handleSendReminder(customerId: string, customerName: string) {
+    setSendingReminder((prev) => ({ ...prev, [customerId]: true }));
+    try {
+      const res = await fetch(`/api/billing/reminders/${customerId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channels: ["email", "sms"] }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to send reminder.");
+      toast.success(`Reminder sent to ${customerName}`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to send reminder.");
+    } finally {
+      setSendingReminder((prev) => ({ ...prev, [customerId]: false }));
     }
   }
 
@@ -200,6 +257,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     void loadDashboardData();
+    void loadCustomerNames();
   }, []);
 
   useEffect(() => {
@@ -778,9 +836,14 @@ export default function DashboardPage() {
                               >
                                 <td className="py-2.5 px-2 text-slate-400 font-mono">{i + 1}</td>
                                 <td className="py-2.5 px-2">
-                                  <span className="flex items-center gap-1.5">
-                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 flex-shrink-0 animate-pulse" />
-                                    <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{session.user}</span>
+                                  <span className="flex flex-col gap-0.5">
+                                    <span className="flex items-center gap-1.5">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 flex-shrink-0 animate-pulse" />
+                                      <span className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[180px]">{customerNameMap[session.user] || session.user}</span>
+                                    </span>
+                                    {customerNameMap[session.user] && (
+                                      <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 pl-3">{session.user}</span>
+                                    )}
                                   </span>
                                 </td>
                                 <td className="py-2.5 px-2 font-mono text-slate-500 hidden sm:table-cell">{session.address}</td>
@@ -936,32 +999,70 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
+            {/* Deadline Reminders — Customers due within 3 days */}
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>Recent Activity</CardTitle>
-                    <CardDescription>Payments, sync logs, and account actions.</CardDescription>
+                    <CardTitle className="flex items-center gap-2">
+                      <CalendarClock className="h-4 w-4 text-amber-500" />
+                      Deadline Reminders
+                    </CardTitle>
+                    <CardDescription>Customers due within 3 days — send reminders now.</CardDescription>
                   </div>
-                  <Badge variant="info" className="gap-1 flex items-center">
-                    <Activity className="h-3 w-3 animate-pulse" /> Live
-                  </Badge>
+                  {data.deadlineCustomers && data.deadlineCustomers.length > 0 && (
+                    <Badge variant="danger" className="gap-1 flex items-center">
+                      <Bell className="h-3 w-3" /> {data.deadlineCustomers.length}
+                    </Badge>
+                  )}
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {data.activityItems.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-8">No recent system activities logged.</p>
+              <CardContent className="space-y-2">
+                {!data.deadlineCustomers || data.deadlineCustomers.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-8">🎉 No customers due within 3 days.</p>
                 ) : (
-                  data.activityItems.map((item, index) => (
-                    <div key={`${item.title}-${index}`} className="flex gap-3 rounded-2xl border border-slate-100 p-3 dark:border-slate-900">
-                      <div className="mt-1 h-2.5 w-2.5 rounded-full bg-blue-500 flex-shrink-0" />
-                      <div>
-                        <p className="text-sm font-semibold text-slate-950 dark:text-white leading-none">{item.title}</p>
-                        <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{item.detail}</p>
-                        <p className="mt-1 text-[10px] text-slate-400">{item.time}</p>
+                  <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                    {data.deadlineCustomers.map((cust) => (
+                      <div
+                        key={cust.id}
+                        className="flex items-center justify-between gap-3 rounded-2xl border border-amber-100 dark:border-amber-500/20 bg-amber-50/50 dark:bg-amber-500/5 p-3 transition-all hover:shadow-sm"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{cust.full_name}</p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">{cust.account_number}</p>
+                          <p className={`text-[11px] font-semibold mt-0.5 ${
+                            cust.days_left <= 0
+                              ? "text-rose-600 dark:text-rose-400"
+                              : cust.days_left <= 1
+                              ? "text-amber-600 dark:text-amber-400"
+                              : "text-blue-600 dark:text-blue-400"
+                          }`}>
+                            {cust.days_left <= 0
+                              ? "⚠️ Due today!"
+                              : cust.days_left === 1
+                              ? "⏰ Due tomorrow"
+                              : `📅 ${cust.days_left} days left`}
+                          </p>
+                        </div>
+                        <button
+                          disabled={sendingReminder[cust.id]}
+                          onClick={() => handleSendReminder(cust.id, cust.full_name)}
+                          className={`flex items-center gap-1 rounded-xl px-3 py-2 text-[10px] font-bold uppercase tracking-wider transition-all duration-200 flex-shrink-0 ${
+                            sendingReminder[cust.id]
+                              ? "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 cursor-wait"
+                              : "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:hover:bg-amber-500/30 cursor-pointer shadow-sm"
+                          }`}
+                          title="Send billing reminder via email & SMS"
+                        >
+                          {sendingReminder[cust.id] ? (
+                            <><RefreshCw className="h-3 w-3 animate-spin" /> Sending...</>
+                          ) : (
+                            <><Send className="h-3 w-3" /> Remind</>
+                          )}
+                        </button>
                       </div>
-                    </div>
-                  ))
+                    ))}
+                  </div>
                 )}
               </CardContent>
             </Card>

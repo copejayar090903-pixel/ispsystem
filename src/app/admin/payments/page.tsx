@@ -205,18 +205,26 @@ export default function PaymentsPage() {
       },
       {
         accessorKey: "proof_url",
-        header: "Proof",
+        header: "Receipt",
         cell: ({ row }) => {
           const url = row.original.proof_url;
-          if (!url) return <span className="text-slate-400">No image</span>;
+          if (!url) return <span className="text-slate-400 text-xs">No receipt</span>;
           return (
-            <Button
-              variant="ghost"
-              size="sm"
+            <button
               onClick={() => window.open(url, "_blank")}
+              className="group flex items-center gap-2 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 hover:border-blue-400 transition-colors"
+              title="Click to view full receipt"
             >
-              <FileImage className="h-4 w-4 mr-1.5" /> View Proof
-            </Button>
+              <img
+                src={url}
+                alt="Receipt"
+                className="h-10 w-10 object-cover bg-slate-100 dark:bg-slate-800"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+              />
+              <span className="pr-2.5 text-xs font-semibold text-blue-600 dark:text-blue-400 group-hover:underline">
+                View Receipt
+              </span>
+            </button>
           );
         },
       },

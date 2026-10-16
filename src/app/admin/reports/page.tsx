@@ -11,14 +11,14 @@ import {
   Wallet, BadgePercent, Calendar, FileSpreadsheet, FileText,
   Download, CreditCard, Activity, CheckCircle2, XCircle, Clock, Loader2,
   DollarSign, ArrowUpRight, ArrowDownRight, Search, History,
-  Bell, Send, Minus, Plus, Trash2, Receipt, X,
+  Bell, Send, Minus, Plus, Trash2, Receipt, X, LayoutDashboard,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/src/components/admin/page-header";
 import { Button } from "@/src/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/src/components/ui/card";
 import { Badge } from "@/src/components/ui/badge";
-import { formatCurrency } from "@/src/lib/utils";
+import { formatCurrency, cn } from "@/src/lib/utils";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type ReportData = {
@@ -196,6 +196,8 @@ function KpiCard({
 const FULL_MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 export default function ReportsPage() {
+  type ReportTab = "overview" | "revenue" | "customers" | "payments" | "expenses" | "outstanding";
+  const [activeTab, setActiveTab] = useState<ReportTab>("overview");
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -409,76 +411,130 @@ export default function ReportsPage() {
         }
       />
 
-      {/* ─── KPI Summary Row ─────────────────────────────────────────────── */}
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <KpiCard
-          title="Total Customers"
-          value={String(summary.totalCustomers)}
-          sub={`${summary.activeCustomers} active`}
-          icon={<Users className="h-5 w-5" />}
-          color="blue"
-        />
-        <KpiCard
-          title={`${summary.currentMonthName} Revenue`}
-          value={formatCurrency(summary.currentMonthRevenue)}
-          sub={`${summary.currentMonthPaid} bills paid this month`}
-          icon={<Wallet className="h-5 w-5" />}
-          color="green"
-          trend="up"
-        />
-        <KpiCard
-          title="Outstanding Balance"
-          value={formatCurrency(summary.outstanding)}
-          sub={`${summary.currentMonthUnpaid} unpaid this month`}
-          icon={<AlertTriangle className="h-5 w-5" />}
-          color="red"
-          trend="down"
-        />
-        <KpiCard
-          title="Collection Rate"
-          value={`${summary.collectionRate}%`}
-          sub={`${formatCurrency(summary.totalCollected)} of ${formatCurrency(summary.totalInvoiced)}`}
-          icon={<BadgePercent className="h-5 w-5" />}
-          color={summary.collectionRate >= 75 ? "green" : summary.collectionRate >= 50 ? "amber" : "red"}
-          trend={summary.collectionRate >= 75 ? "up" : "down"}
-        />
-      </section>
+      {/* ─── Tab Navigation Bar ────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-200 dark:border-slate-800">
+        {([
+          { id: "overview", label: "Overview", icon: LayoutDashboard },
+          { id: "revenue", label: "Revenue", icon: DollarSign },
+          { id: "customers", label: "Customers", icon: Users },
+          { id: "payments", label: "Payments", icon: CreditCard },
+          { id: "expenses", label: "Expenses", icon: Receipt, count: data.expenses.length },
+          {
+            id: "outstanding",
+            label: "Outstanding",
+            icon: AlertTriangle,
+            count: (data.overdueCustomers.length || 0) + (data.outstandingCustomers?.length || 0),
+          },
+        ] as Array<{ id: ReportTab; label: string; icon: any; count?: number }>).map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all duration-200 cursor-pointer shadow-sm",
+                isActive
+                  ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
+                  : "bg-white text-slate-600 hover:text-slate-950 hover:bg-slate-100 border border-slate-200/80 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-900"
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              <span>{tab.label}</span>
+              {typeof tab.count === "number" && tab.count > 0 && (
+                <span
+                  className={cn(
+                    "ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold",
+                    isActive
+                      ? "bg-white/20 text-white dark:bg-slate-900/20 dark:text-slate-900"
+                      : tab.id === "outstanding"
+                      ? "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300"
+                      : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                  )}
+                >
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-      {/* ─── KPI Row 2: Expenses & Net Profit ─────────────────────────────── */}
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <KpiCard
-          title={`${summary.currentMonthName} Expenses`}
-          value={formatCurrency(summary.currentMonthExpenses)}
-          sub="Operational costs this month"
-          icon={<Receipt className="h-5 w-5" />}
-          color="amber"
-        />
-        <KpiCard
-          title={`${summary.currentMonthName} Net Profit`}
-          value={formatCurrency(summary.currentMonthNetProfit)}
-          sub={`Revenue ${formatCurrency(summary.currentMonthRevenue)} − Costs ${formatCurrency(summary.currentMonthExpenses)}`}
-          icon={<TrendingUp className="h-5 w-5" />}
-          color={summary.currentMonthNetProfit >= 0 ? "green" : "red"}
-          trend={summary.currentMonthNetProfit >= 0 ? "up" : "down"}
-        />
-        <KpiCard
-          title="12-Month Total Expenses"
-          value={formatCurrency(summary.totalExpenses12m)}
-          sub="All tracked costs over 12 months"
-          icon={<Minus className="h-5 w-5" />}
-          color="amber"
-        />
-        <KpiCard
-          title="12-Month Net Profit"
-          value={formatCurrency(summary.totalNetProfit12m)}
-          sub={`Collected ${formatCurrency(summary.totalCollected)} − Costs ${formatCurrency(summary.totalExpenses12m)}`}
-          icon={<DollarSign className="h-5 w-5" />}
-          color={summary.totalNetProfit12m >= 0 ? "green" : "red"}
-          trend={summary.totalNetProfit12m >= 0 ? "up" : "down"}
-        />
-      </section>
+      {/* ─── KPI Summary Row (Overview) ─────────────────────────────────── */}
+      {activeTab === "overview" && (
+        <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <KpiCard
+            title="Total Customers"
+            value={String(summary.totalCustomers)}
+            sub={`${summary.activeCustomers} active`}
+            icon={<Users className="h-5 w-5" />}
+            color="blue"
+          />
+          <KpiCard
+            title={`${summary.currentMonthName} Revenue`}
+            value={formatCurrency(summary.currentMonthRevenue)}
+            sub={`${summary.currentMonthPaid} bills paid this month`}
+            icon={<Wallet className="h-5 w-5" />}
+            color="green"
+            trend="up"
+          />
+          <KpiCard
+            title="Outstanding Balance"
+            value={formatCurrency(summary.outstanding)}
+            sub={`${summary.currentMonthUnpaid} unpaid this month`}
+            icon={<AlertTriangle className="h-5 w-5" />}
+            color="red"
+            trend="down"
+          />
+          <KpiCard
+            title="Collection Rate"
+            value={`${summary.collectionRate}%`}
+            sub={`${formatCurrency(summary.totalCollected)} of ${formatCurrency(summary.totalInvoiced)}`}
+            icon={<BadgePercent className="h-5 w-5" />}
+            color={summary.collectionRate >= 75 ? "green" : summary.collectionRate >= 50 ? "amber" : "red"}
+            trend={summary.collectionRate >= 75 ? "up" : "down"}
+          />
+        </section>
+      )}
+
+      {/* ─── KPI Row 2: Expenses & Net Profit (Overview & Expenses) ────────── */}
+      {(activeTab === "overview" || activeTab === "expenses") && (
+        <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <KpiCard
+            title={`${summary.currentMonthName} Expenses`}
+            value={formatCurrency(summary.currentMonthExpenses)}
+            sub="Operational costs this month"
+            icon={<Receipt className="h-5 w-5" />}
+            color="amber"
+          />
+          <KpiCard
+            title={`${summary.currentMonthName} Net Profit`}
+            value={formatCurrency(summary.currentMonthNetProfit)}
+            sub={`Revenue ${formatCurrency(summary.currentMonthRevenue)} − Costs ${formatCurrency(summary.currentMonthExpenses)}`}
+            icon={<TrendingUp className="h-5 w-5" />}
+            color={summary.currentMonthNetProfit >= 0 ? "green" : "red"}
+            trend={summary.currentMonthNetProfit >= 0 ? "up" : "down"}
+          />
+          <KpiCard
+            title="12-Month Total Expenses"
+            value={formatCurrency(summary.totalExpenses12m)}
+            sub="All tracked costs over 12 months"
+            icon={<Minus className="h-5 w-5" />}
+            color="amber"
+          />
+          <KpiCard
+            title="12-Month Net Profit"
+            value={formatCurrency(summary.totalNetProfit12m)}
+            sub={`Collected ${formatCurrency(summary.totalCollected)} − Costs ${formatCurrency(summary.totalExpenses12m)}`}
+            icon={<DollarSign className="h-5 w-5" />}
+            color={summary.totalNetProfit12m >= 0 ? "green" : "red"}
+            trend={summary.totalNetProfit12m >= 0 ? "up" : "down"}
+          />
+        </section>
+      )}
 
       {/* ─── Revenue per Month + Collection Summary ────────────────────────── */}
+      {(activeTab === "overview" || activeTab === "revenue") && (
       <section className="grid gap-6 xl:grid-cols-[1fr_320px]">
       {/* Left: Revenue per Month chart + table */}
       <Card className="overflow-hidden">
@@ -798,184 +854,191 @@ export default function ReportsPage() {
         </CardContent>
       </Card>
       </section>
+      )}
 
       {/* ─── Revenue Trend & Efficiency ───────────────────────────────────── */}
-      <section className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-blue-500" />
-              Revenue Trend (12 Months)
-            </CardTitle>
-            <CardDescription>Monthly invoiced vs. collected revenue</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <AreaChart data={data.revenueTrendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                <defs>
-                  <linearGradient id="collectedGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="invoicedGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.12} />
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" />
-                <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                <YAxis tickFormatter={(v) => `₱${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10 }} width={50} />
-                <Tooltip formatter={currencyFormatter} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Area type="monotone" dataKey="invoiced" name="Invoiced" stroke="#3b82f6" fill="url(#invoicedGrad)" strokeWidth={2} />
-                <Area type="monotone" dataKey="collected" name="Collected" stroke="#10b981" fill="url(#collectedGrad)" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+      {activeTab === "revenue" && (
+        <section className="grid gap-6 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-blue-500" />
+                Revenue Trend (12 Months)
+              </CardTitle>
+              <CardDescription>Monthly invoiced vs. collected revenue</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={260}>
+                <AreaChart data={data.revenueTrendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="collectedGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.18} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="invoicedGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.12} />
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis tickFormatter={(v) => `₱${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10 }} width={50} />
+                  <Tooltip formatter={currencyFormatter} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Area type="monotone" dataKey="invoiced" name="Invoiced" stroke="#3b82f6" fill="url(#invoicedGrad)" strokeWidth={2} />
+                  <Area type="monotone" dataKey="collected" name="Collected" stroke="#10b981" fill="url(#collectedGrad)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BadgePercent className="h-4 w-4 text-purple-500" />
-              Collection Efficiency (%)
-            </CardTitle>
-            <CardDescription>Monthly percentage of invoiced amounts collected</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={data.collectionEfficiencyData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" />
-                <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} width={40} />
-                <Tooltip formatter={pctFormatter} />
-                <Line
-                  type="monotone" dataKey="efficiency" name="Efficiency"
-                  stroke="#8b5cf6" strokeWidth={2.5} dot={{ r: 4, fill: "#8b5cf6" }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </section>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BadgePercent className="h-4 w-4 text-purple-500" />
+                Collection Efficiency (%)
+              </CardTitle>
+              <CardDescription>Monthly percentage of invoiced amounts collected</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={data.collectionEfficiencyData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} width={40} />
+                  <Tooltip formatter={pctFormatter} />
+                  <Line
+                    type="monotone" dataKey="efficiency" name="Efficiency"
+                    stroke="#8b5cf6" strokeWidth={2.5} dot={{ r: 4, fill: "#8b5cf6" }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
-      {/* ─── Customer Growth & Status ─────────────────────────────────────── */}
-      <section className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-blue-500" />
-              Customer Growth (12 Months)
-            </CardTitle>
-            <CardDescription>New sign-ups and cumulative subscriber count</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={data.customerGrowthData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" />
-                <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} width={30} />
-                <Tooltip />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="newCustomers" name="New Subscribers" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="totalCustomers" name="Total Subscribers" fill="#10b981" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+      {/* ─── Customers Tab ─────────────────────────────────────────────────── */}
+      {activeTab === "customers" && (
+        <>
+          <section className="grid gap-6 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-blue-500" />
+                  Customer Growth (12 Months)
+                </CardTitle>
+                <CardDescription>New sign-ups and cumulative subscriber count</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={data.customerGrowthData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" />
+                    <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} width={30} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="newCustomers" name="New Subscribers" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="totalCustomers" name="Total Subscribers" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-emerald-500" />
-              Customer Status Breakdown
-            </CardTitle>
-            <CardDescription>Distribution of account statuses across all customers</CardDescription>
-          </CardHeader>
-          <CardContent className="flex items-center gap-8">
-            <ResponsiveContainer width="55%" height={240}>
-              <PieChart>
-                <Pie
-                  data={data.customerStatusData.filter((d) => d.value > 0)}
-                  cx="50%" cy="50%"
-                  outerRadius={85}
-                  dataKey="value"
-                  paddingAngle={3}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-emerald-500" />
+                  Customer Status Breakdown
+                </CardTitle>
+                <CardDescription>Distribution of account statuses across all customers</CardDescription>
+              </CardHeader>
+              <CardContent className="flex items-center gap-8">
+                <ResponsiveContainer width="55%" height={240}>
+                  <PieChart>
+                    <Pie
+                      data={data.customerStatusData.filter((d) => d.value > 0)}
+                      cx="50%" cy="50%"
+                      outerRadius={85}
+                      dataKey="value"
+                      paddingAngle={3}
+                    >
+                      {data.customerStatusData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={STATUS_COLORS[entry.name] || "#94a3b8"} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex-1 space-y-2.5">
+                  {data.customerStatusData.filter((d) => d.value > 0).map((item) => (
+                    <div key={item.name} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: STATUS_COLORS[item.name] || "#94a3b8" }} />
+                        <span className="capitalize text-slate-600 dark:text-slate-400 font-medium">
+                          {item.name}
+                        </span>
+                      </div>
+                      <span className="font-black text-slate-900 dark:text-white">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-amber-500" />
+                Plan Subscriber Distribution
+              </CardTitle>
+              <CardDescription>Number of customers per internet package</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart
+                  data={data.planDistributionData}
+                  layout="vertical"
+                  margin={{ top: 5, right: 20, left: 80, bottom: 5 }}
                 >
-                  {data.customerStatusData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={STATUS_COLORS[entry.name] || "#94a3b8"} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex-1 space-y-2.5">
-              {data.customerStatusData.filter((d) => d.value > 0).map((item) => (
-                <div key={item.name} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    <div className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: STATUS_COLORS[item.name] || "#94a3b8" }} />
-                    <span className="capitalize text-slate-600 dark:text-slate-400 font-medium">
-                      {item.name}
-                    </span>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 10 }} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={75} />
+                  <Tooltip
+                    formatter={(value: any, name: any) => [value, name === "customers" ? "Subscribers" : name]}
+                  />
+                  {data.planDistributionData.map((_, index) => null)}
+                  <Bar dataKey="customers" name="Subscribers" radius={[0, 4, 4, 0]}>
+                    {data.planDistributionData.map((entry, index) => (
+                      <Cell key={`plan-cell-${index}`} fill={PLAN_COLORS[index % PLAN_COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              {/* Plan details table */}
+              <div className="mt-4 divide-y divide-slate-100 dark:divide-slate-800">
+                {data.planDistributionData.map((plan, i) => (
+                  <div key={plan.name} className="flex items-center justify-between py-2.5 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full" style={{ backgroundColor: PLAN_COLORS[i % PLAN_COLORS.length] }} />
+                      <span className="font-semibold text-slate-800 dark:text-slate-200">{plan.name}</span>
+                      <code className="text-slate-400 text-[10px] rounded bg-slate-100 dark:bg-slate-900 px-1">{plan.speed}</code>
+                    </div>
+                    <div className="flex items-center gap-4 text-slate-600 dark:text-slate-400">
+                      <span><span className="font-bold text-slate-900 dark:text-white">{plan.customers}</span> subs</span>
+                      <span>{formatCurrency(plan.revenue)}/mo</span>
+                    </div>
                   </div>
-                  <span className="font-black text-slate-900 dark:text-white">{item.value}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </section>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
 
-      {/* ─── Plan Distribution & Payment Methods ──────────────────────────── */}
-      <section className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-amber-500" />
-              Plan Subscriber Distribution
-            </CardTitle>
-            <CardDescription>Number of customers per internet package</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart
-                data={data.planDistributionData}
-                layout="vertical"
-                margin={{ top: 5, right: 20, left: 80, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10 }} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={75} />
-                <Tooltip
-                  formatter={(value: any, name: any) => [value, name === "customers" ? "Subscribers" : name]}
-                />
-                {data.planDistributionData.map((_, index) => null)}
-                <Bar dataKey="customers" name="Subscribers" radius={[0, 4, 4, 0]}>
-                  {data.planDistributionData.map((entry, index) => (
-                    <Cell key={`plan-cell-${index}`} fill={PLAN_COLORS[index % PLAN_COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-            {/* Plan details table */}
-            <div className="mt-4 divide-y divide-slate-100 dark:divide-slate-800">
-              {data.planDistributionData.map((plan, i) => (
-                <div key={plan.name} className="flex items-center justify-between py-2.5 text-xs">
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full" style={{ backgroundColor: PLAN_COLORS[i % PLAN_COLORS.length] }} />
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">{plan.name}</span>
-                    <code className="text-slate-400 text-[10px] rounded bg-slate-100 dark:bg-slate-900 px-1">{plan.speed}</code>
-                  </div>
-                  <div className="flex items-center gap-4 text-slate-600 dark:text-slate-400">
-                    <span><span className="font-bold text-slate-900 dark:text-white">{plan.customers}</span> subs</span>
-                    <span>{formatCurrency(plan.revenue)}/mo</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
+      {/* ─── Payments Tab: Payment Method Breakdown ───────────────────────── */}
+      {activeTab === "payments" && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1017,11 +1080,13 @@ export default function ReportsPage() {
             </div>
           </CardContent>
         </Card>
-      </section>
+      )}
 
-      {/* ─── Overdue Accounts Table ───────────────────────────────────────── */}
-      {data.overdueCustomers.length > 0 && (
-        <Card>
+      {/* ─── Outstanding Tab ──────────────────────────────────────────────── */}
+      {activeTab === "outstanding" && (
+        <>
+          {data.overdueCustomers.length > 0 && (
+            <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
             <div>
               <CardTitle className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
@@ -1218,104 +1283,120 @@ export default function ReportsPage() {
         </Card>
       )}
 
-      {/* ─── Monthly Expenses Management ────────────────────────────────────── */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
-              <Receipt className="h-4 w-4" />
-              Monthly Expenses / Costs
-              <span className="ml-1 inline-flex items-center justify-center h-5 px-2 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-bold">
-                {data.expenses.length}
-              </span>
-            </CardTitle>
-            <CardDescription>Track operational costs (bandwidth, electricity, rent, etc.) — deducted from collections to show net profit</CardDescription>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowExpenseForm(true)}
-            className="gap-1.5 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700/60 hover:bg-amber-50 dark:hover:bg-amber-950/50"
-          >
-            <Plus className="h-4 w-4" /> Add Expense
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Expenses list */}
-          {data.expenses.length === 0 ? (
-            <div className="py-10 text-center text-slate-400 text-sm">
-              No expenses tracked yet. Click "Add Expense" to start tracking costs.
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
-                    <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Name</th>
-                    <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Category</th>
-                    <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Period</th>
-                    <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider hidden md:table-cell">Notes</th>
-                    <th className="py-2.5 px-3 text-right font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Amount</th>
-                    <th className="py-2.5 px-3 text-center font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-16"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.expenses.map((exp, idx) => (
-                    <tr
-                      key={exp.id}
-                      className={`border-b border-slate-50 dark:border-slate-900 hover:bg-amber-50/30 dark:hover:bg-amber-500/5 transition-colors ${idx % 2 === 0 ? "" : "bg-slate-50/40 dark:bg-slate-900/20"}`}
-                    >
-                      <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white">{exp.name}</td>
-                      <td className="py-2.5 px-3">
-                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                          {exp.category}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">
-                        {FULL_MONTH_NAMES[exp.billing_month - 1]} {exp.billing_year}
-                      </td>
-                      <td className="py-2.5 px-3 text-slate-400 hidden md:table-cell truncate max-w-[200px]">
-                        {exp.notes || "—"}
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-black text-amber-600 dark:text-amber-400">
-                        {formatCurrency(Number(exp.amount))}
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <button
-                          disabled={deletingExpense === exp.id}
-                          onClick={() => handleDeleteExpense(exp.id)}
-                          className="inline-flex items-center justify-center h-7 w-7 rounded-lg text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-500/15 transition-colors disabled:opacity-50"
-                          title="Delete expense"
-                        >
-                          {deletingExpense === exp.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-slate-200 dark:border-slate-700 bg-amber-50/60 dark:bg-amber-500/5">
-                    <td colSpan={4} className="py-3 px-3 font-black text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
-                      {data.expenses.length} expense{data.expenses.length !== 1 ? "s" : ""} total
-                    </td>
-                    <td className="py-3 px-3 text-right font-black text-amber-700 dark:text-amber-300">
-                      {formatCurrency(data.expenses.reduce((s, e) => s + Number(e.amount), 0))}
-                    </td>
-                    <td></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+          {data.overdueCustomers.length === 0 && (!data.outstandingCustomers || data.outstandingCustomers.length === 0) && (
+            <Card>
+              <CardContent className="py-16 text-center text-slate-500">
+                <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto mb-2 opacity-80" />
+                <p className="font-semibold text-slate-700 dark:text-slate-300">All Accounts in Good Standing</p>
+                <p className="text-xs text-slate-400 mt-1">There are currently no overdue or outstanding accounts.</p>
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
+        </>
+      )}
+
+      {/* ─── Monthly Expenses Management ────────────────────────────────────── */}
+      {activeTab === "expenses" && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                <Receipt className="h-4 w-4" />
+                Monthly Expenses / Costs
+                <span className="ml-1 inline-flex items-center justify-center h-5 px-2 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-bold">
+                  {data.expenses.length}
+                </span>
+              </CardTitle>
+              <CardDescription>Track operational costs (bandwidth, electricity, rent, etc.) — deducted from collections to show net profit</CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowExpenseForm(true)}
+              className="gap-1.5 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700/60 hover:bg-amber-50 dark:hover:bg-amber-950/50"
+            >
+              <Plus className="h-4 w-4" /> Add Expense
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Expenses list */}
+            {data.expenses.length === 0 ? (
+              <div className="py-10 text-center text-slate-400 text-sm">
+                No expenses tracked yet. Click "Add Expense" to start tracking costs.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
+                      <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Name</th>
+                      <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Category</th>
+                      <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Period</th>
+                      <th className="py-2.5 px-3 text-left font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider hidden md:table-cell">Notes</th>
+                      <th className="py-2.5 px-3 text-right font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Amount</th>
+                      <th className="py-2.5 px-3 text-center font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-16"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.expenses.map((exp, idx) => (
+                      <tr
+                        key={exp.id}
+                        className={`border-b border-slate-50 dark:border-slate-900 hover:bg-amber-50/30 dark:hover:bg-amber-500/5 transition-colors ${idx % 2 === 0 ? "" : "bg-slate-50/40 dark:bg-slate-900/20"}`}
+                      >
+                        <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white">{exp.name}</td>
+                        <td className="py-2.5 px-3">
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                            {exp.category}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">
+                          {FULL_MONTH_NAMES[exp.billing_month - 1]} {exp.billing_year}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400 hidden md:table-cell truncate max-w-[200px]">
+                          {exp.notes || "—"}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-black text-amber-600 dark:text-amber-400">
+                          {formatCurrency(Number(exp.amount))}
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <button
+                            disabled={deletingExpense === exp.id}
+                            onClick={() => handleDeleteExpense(exp.id)}
+                            className="inline-flex items-center justify-center h-7 w-7 rounded-lg text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-500/15 transition-colors disabled:opacity-50"
+                            title="Delete expense"
+                          >
+                            {deletingExpense === exp.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-200 dark:border-slate-700 bg-amber-50/60 dark:bg-amber-500/5">
+                      <td colSpan={4} className="py-3 px-3 font-black text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
+                        {data.expenses.length} expense{data.expenses.length !== 1 ? "s" : ""} total
+                      </td>
+                      <td className="py-3 px-3 text-right font-black text-amber-700 dark:text-amber-300">
+                        {formatCurrency(data.expenses.reduce((s, e) => s + Number(e.amount), 0))}
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ─── All Paid Bills ────────────────────────────────────────────────── */}
-      <Card>
+      {activeTab === "payments" && (
+        <>
+        <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
           <div>
             <CardTitle className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
@@ -1627,6 +1708,8 @@ export default function ReportsPage() {
           </Card>
         );
       })()}
+      </>
+      )}
 
       {/* ─── Add Expense Dialog Modal ────────────────────────────────────────── */}
       {showExpenseForm && (

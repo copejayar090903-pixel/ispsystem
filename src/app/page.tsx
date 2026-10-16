@@ -30,6 +30,8 @@ import {
   CalendarDays,
   BadgeCheck,
   ExternalLink,
+  Upload,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/src/components/admin/status-badge";
@@ -127,19 +129,28 @@ export default function Home() {
   const [currentBill, setCurrentBill] = useState<CurrentBill | null>(null);
   const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
 
-  // Payment form state
-  const [paymentMethod, setPaymentMethod] = useState("paymongo");
+  // Regular payment form state (receipt upload)
+  const [paymentMethod, setPaymentMethod] = useState("gcash");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [amountPaid, setAmountPaid] = useState("");
+  const [regularReceiptFile, setRegularReceiptFile] = useState<File | null>(null);
+  const [regularReceiptPreview, setRegularReceiptPreview] = useState<string | null>(null);
+  const [regularOcrScanning, setRegularOcrScanning] = useState(false);
+  const [regularDate, setRegularDate] = useState("");
 
-  // Renewal state
+  // Renewal / Purchase Load state
   const [showRenewal, setShowRenewal] = useState(false);
   const [plans, setPlans] = useState<CustomerPlan[]>([]);
   const [plansLoading, setPlansLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<CustomerPlan | null>(null);
   const [renewalName, setRenewalName] = useState("");
   const [renewalRef, setRenewalRef] = useState("");
-  const [renewalMethod, setRenewalMethod] = useState("paymongo");
+  const [renewalAmount, setRenewalAmount] = useState("");
+  const [renewalDate, setRenewalDate] = useState("");
+  const [renewalReceiptFile, setRenewalReceiptFile] = useState<File | null>(null);
+  const [renewalReceiptPreview, setRenewalReceiptPreview] = useState<string | null>(null);
+  const [renewalOcrScanning, setRenewalOcrScanning] = useState(false);
+  const [renewalOcrDetected, setRenewalOcrDetected] = useState<{ amount?: number; refNo?: string; date?: string; customerName?: string } | null>(null);
   const [renewalSubmitting, setRenewalSubmitting] = useState(false);
 
   const [timeLeft, setTimeLeft] = useState<{
@@ -242,61 +253,105 @@ export default function Home() {
     }
   };
 
-  const handlePayMongoPayment = async () => {
-    if (!customerData || !currentBill) return;
-    setSubmitting(true);
+  const handleRenewalReceiptUpload = async (file: File) => {
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("Receipt image must be under 10 MB.");
+      return;
+    }
+    setRenewalReceiptFile(file);
+    const reader = new FileReader();
+    reader.onload = (e) => setRenewalReceiptPreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+
+    setRenewalOcrScanning(true);
     try {
-      const res = await fetch("/api/paymongo/create-link", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          accountNumber: customerData.account_number,
-          billId: currentBill.id,
-        }),
-      });
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/portal/payment-submit?action=ocr", { method: "POST", body: fd });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to create payment link.");
-      if (data.checkout_url) {
-        toast.loading("Redirecting to PayMongo Checkout...");
-        window.location.href = data.checkout_url;
-      } else {
-        throw new Error("No checkout URL returned from server.");
+      if (res.ok && data.success) {
+        if (data.amount) setRenewalAmount(String(data.amount));
+        if (data.referenceNumber) setRenewalRef(data.referenceNumber);
+        if (data.date) setRenewalDate(data.date);
+        if (data.customerName) setRenewalName(data.customerName);
+        setRenewalOcrDetected(data);
+        toast.success("Receipt scanned! Amount, Ref No, and Date auto-detected.");
       }
-    } catch (err: any) {
-      toast.error(err.message || "Failed to initiate online payment.");
+    } catch (err) {
+      console.warn("OCR notice:", err);
     } finally {
-      setSubmitting(false);
+      setRenewalOcrScanning(false);
+    }
+  };
+
+  const handleRegularReceiptUpload = async (file: File) => {
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("Receipt image must be under 10 MB.");
+      return;
+    }
+    setRegularReceiptFile(file);
+    const reader = new FileReader();
+    reader.onload = (e) => setRegularReceiptPreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+
+    setRegularOcrScanning(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/portal/payment-submit?action=ocr", { method: "POST", body: fd });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (data.amount) setAmountPaid(String(data.amount));
+        if (data.referenceNumber) setReferenceNumber(data.referenceNumber);
+        if (data.date) setRegularDate(data.date);
+        toast.success("Receipt scanned! Fields auto-detected.");
+      }
+    } catch (err) {
+      console.warn("OCR notice:", err);
+    } finally {
+      setRegularOcrScanning(false);
     }
   };
 
   const handleSubmitPayment = async () => {
-    if (!customerData) return;
-    if (paymentMethod === "paymongo") {
-      await handlePayMongoPayment();
+    if (!customerData || !currentBill) return;
+    if (!regularReceiptFile) {
+      toast.error("Please upload your receipt image (e.g. GCash receipt).");
       return;
     }
-    if (!amountPaid || Number(amountPaid) <= 0) {
+    if (!referenceNumber.trim()) {
+      toast.error("Please enter the reference number from your receipt.");
+      return;
+    }
+    const amountNum = Number(amountPaid);
+    if (!amountNum || amountNum <= 0) {
       toast.error("Please enter the amount paid.");
       return;
     }
+
     setSubmitting(true);
     try {
+      const fd = new FormData();
+      fd.append("accountNumber", customerData.account_number);
+      fd.append("method", paymentMethod);
+      fd.append("referenceNumber", referenceNumber.trim());
+      fd.append("amountPaid", String(amountNum));
+      fd.append("receipt", regularReceiptFile);
+      if (regularDate) fd.append("receiptDate", regularDate);
+
       const res = await fetch("/api/portal/payment-submit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          accountNumber: customerData.account_number,
-          method: paymentMethod,
-          referenceNumber: referenceNumber || null,
-          amountPaid: Number(amountPaid),
-          proofUrl: null,
-        }),
+        body: fd,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Submission failed.");
-      toast.success(data.message || "Payment proof uploaded for verification.");
+
+      toast.success(data.message || "Receipt submitted! Customer renewed automatically & sent for admin review.");
+      setRegularReceiptFile(null);
+      setRegularReceiptPreview(null);
       setReferenceNumber("");
       setAmountPaid("");
+      setRegularDate("");
       await handleLookup();
     } catch (err: any) {
       toast.error(err.message || "Failed to submit payment proof.");
@@ -307,60 +362,62 @@ export default function Home() {
 
   const handleRenewalSubmit = async () => {
     if (!customerData) return;
-    if (!selectedPlan) { toast.error("Please select a subscription plan."); return; }
-
-    if (renewalMethod === "paymongo") {
-      setRenewalSubmitting(true);
-      try {
-        const res = await fetch("/api/paymongo/create-renewal-link", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            accountNumber: customerData.account_number,
-            planId: selectedPlan.id,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to create renewal payment link.");
-        if (data.checkout_url) {
-          toast.loading("Redirecting to PayMongo Checkout...");
-          window.location.href = data.checkout_url;
-        } else {
-          throw new Error("No checkout URL returned from server.");
-        }
-      } catch (err: any) {
-        toast.error(err.message || "Failed to initiate online renewal.");
-      } finally {
-        setRenewalSubmitting(false);
-      }
+    if (!selectedPlan) {
+      toast.error("Please select a subscription plan.");
+      return;
+    }
+    if (!renewalReceiptFile) {
+      toast.error("Please upload your GCash receipt image.");
+      return;
+    }
+    if (!renewalRef.trim()) {
+      toast.error("Please enter your GCash reference number.");
       return;
     }
 
-    if (!renewalName.trim()) { toast.error("Please enter your name."); return; }
-    if (!renewalRef.trim()) { toast.error("Please enter your GCash reference number."); return; }
+    const amountNum = Number(renewalAmount);
+    if (!amountNum || amountNum <= 0) {
+      toast.error("Please enter the amount from your receipt.");
+      return;
+    }
+
+    // Exact match check: plan fee and load amount must match before saving
+    if (Math.round(amountNum) !== Math.round(selectedPlan.monthly_fee)) {
+      toast.error(
+        `Plan and load amount do not match! Selected plan "${selectedPlan.plan_name}" is ₱${selectedPlan.monthly_fee.toLocaleString()}, but receipt is ₱${amountNum.toLocaleString()}. Please make sure the plan and load match before saving.`
+      );
+      return;
+    }
 
     setRenewalSubmitting(true);
     try {
+      const fd = new FormData();
+      fd.append("accountNumber", customerData.account_number);
+      fd.append("method", "gcash");
+      fd.append("referenceNumber", renewalRef.trim());
+      fd.append("amountPaid", String(amountNum));
+      fd.append("planId", selectedPlan.id);
+      fd.append("customerName", renewalName.trim() || customerData.full_name);
+      if (renewalDate) fd.append("receiptDate", renewalDate);
+      if (renewalReceiptFile) fd.append("receipt", renewalReceiptFile);
+
       const res = await fetch("/api/portal/payment-submit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          accountNumber: customerData.account_number,
-          method: "gcash",
-          referenceNumber: renewalRef.trim(),
-          amountPaid: selectedPlan.monthly_fee,
-          proofUrl: null,
-          customerName: renewalName.trim(),
-          planId: selectedPlan.id,
-        }),
+        body: fd,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Renewal submission failed.");
-      toast.success("Renewal request submitted! Our team will process it within 30 minutes.");
+
+      toast.success(data.message || "Subscription renewed automatically! Admin will confirm your receipt.");
       setShowRenewal(false);
       setSelectedPlan(null);
       setRenewalName("");
       setRenewalRef("");
+      setRenewalAmount("");
+      setRenewalDate("");
+      setRenewalReceiptFile(null);
+      setRenewalReceiptPreview(null);
+      setRenewalOcrDetected(null);
       await handleLookup();
     } catch (err: any) {
       toast.error(err.message || "Failed to submit renewal.");
@@ -674,221 +731,299 @@ export default function Home() {
                             )}
                           </div>
 
-                          {/* Step 2: Choose Payment Method */}
+                          {/* Step 2: Upload Payment Receipt (GCash / Maya) */}
                           <div className="space-y-3">
                             <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                               <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold">2</span>
-                              Payment Method
+                              Upload GCash / E-Wallet Receipt
                             </label>
-                            <select
-                              value={renewalMethod}
-                              onChange={(e) => setRenewalMethod(e.target.value)}
-                              className="h-10 w-full rounded-xl border border-slate-200 dark:border-slate-800 dark:bg-slate-900 px-3 focus:ring-1 focus:ring-blue-500 focus:outline-none text-sm font-medium"
-                            >
-                              <option value="paymongo">Pay Online (GCash, Maya, Cards) via PayMongo</option>
-                              <option value="manual">GCash (Manual Proof Submission)</option>
-                            </select>
-                          </div>
 
-                          {renewalMethod === "paymongo" ? (
-                            <div className="space-y-4">
-                              <div className="flex items-start gap-2 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 rounded-xl p-3">
-                                <Info className="h-4 w-4 text-blue-500 flex-shrink-0 mt-0.5" />
-                                <p className="text-[11px] text-blue-700 dark:text-blue-300 leading-relaxed">
-                                  You will be redirected to PayMongo's secure payment portal where you can pay instantly via GCash, Maya, or Credit/Debit card. Your connection will be updated automatically.
-                                </p>
+                            {/* Payment details banner */}
+                            <div className="rounded-2xl border border-blue-200 dark:border-blue-500/25 bg-blue-50/70 dark:bg-blue-500/5 p-4 space-y-2">
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                <span className="text-xs font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                                  <Smartphone className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                                  Official GCash Payment Account
+                                </span>
+                                <Badge className="bg-blue-600 text-white text-[10px]">Instant OCR</Badge>
                               </div>
-
-                              <div className="flex gap-2 pt-1">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="rounded-xl"
-                                  onClick={() => setShowRenewal(false)}
-                                  disabled={renewalSubmitting}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button
-                                  className="flex-1 h-11 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium shadow-lg shadow-blue-500/15"
-                                  onClick={() => void handleRenewalSubmit()}
-                                  disabled={renewalSubmitting}
-                                >
-                                  {renewalSubmitting ? (
-                                    <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Preparing Checkout...</>
-                                  ) : (
-                                    <><CreditCard className="h-4 w-4 mr-1.5" /> Pay Now via PayMongo <ExternalLink className="h-3.5 w-3.5 ml-1.5" /></>
-                                  )}
-                                </Button>
+                              <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                                <div>
+                                  <span className="text-slate-500 dark:text-slate-400 block text-[10px]">GCash Number</span>
+                                  <span className="font-mono font-bold text-slate-900 dark:text-white text-sm">0975 920 9976</span>
+                                </div>
+                                <div>
+                                  <span className="text-slate-500 dark:text-slate-400 block text-[10px]">Account Name</span>
+                                  <span className="font-bold text-slate-900 dark:text-white text-sm">Devcop ISP / Jayar C.</span>
+                                </div>
                               </div>
                             </div>
-                          ) : (
-                            <div className="space-y-6">
-                              {/* Step 3: Name & Reference */}
-                              <div className="space-y-3">
-                                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold">3</span>
-                                  Your Details &amp; Payment Reference
-                                </label>
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                  <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Full Name</label>
-                                    <Input
-                                      placeholder="e.g. Juan Dela Cruz"
-                                      value={renewalName}
-                                      onChange={(e) => setRenewalName(e.target.value)}
-                                      className="h-10 rounded-xl border-slate-200 dark:border-slate-800 focus-visible:ring-blue-500 text-sm"
-                                    />
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">GCash Reference No.</label>
-                                    <Input
-                                      placeholder="e.g. 2024082512345"
-                                      value={renewalRef}
-                                      onChange={(e) => setRenewalRef(e.target.value)}
-                                      className="h-10 rounded-xl border-slate-200 dark:border-slate-800 focus-visible:ring-blue-500 text-sm font-mono"
-                                    />
-                                  </div>
+
+                            {/* File Upload Box */}
+                            {!renewalReceiptPreview ? (
+                              <label className="group flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/40 p-6 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50/20 dark:hover:border-blue-500/50 transition-all">
+                                <div className="h-12 w-12 rounded-2xl bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400 mb-2 group-hover:scale-105 transition-transform">
+                                  <Upload className="h-6 w-6" />
+                                </div>
+                                <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                  Tap or drop your GCash receipt image here
+                                </p>
+                                <p className="text-[10px] text-slate-400 mt-1">
+                                  JPG, PNG, or WebP up to 10 MB. System will automatically extract Amount, Ref No, and Date.
+                                </p>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="sr-only"
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) void handleRenewalReceiptUpload(f);
+                                  }}
+                                />
+                              </label>
+                            ) : (
+                              <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-2">
+                                <img
+                                  src={renewalReceiptPreview}
+                                  alt="Receipt preview"
+                                  className="max-h-56 object-contain rounded-xl"
+                                />
+                                <div className="flex items-center justify-between w-full px-3 py-2 bg-slate-900/80 rounded-xl mt-2">
+                                  <span className="text-xs text-white truncate font-medium">
+                                    {renewalReceiptFile?.name}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      setRenewalReceiptFile(null);
+                                      setRenewalReceiptPreview(null);
+                                      setRenewalOcrDetected(null);
+                                    }}
+                                    className="text-xs text-rose-400 hover:text-rose-300 font-bold flex items-center gap-1"
+                                  >
+                                    <X className="h-3.5 w-3.5" /> Remove
+                                  </button>
                                 </div>
                               </div>
+                            )}
 
-                              {/* Step 4: How to pay via GCash */}
-                              <div className="space-y-3">
-                                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold">4</span>
-                                  How to Pay via GCash
-                                </label>
-                                <div className="rounded-2xl border border-emerald-200 dark:border-emerald-500/25 bg-emerald-50/60 dark:bg-emerald-500/5 p-4 space-y-3">
-                                  {GCASH_STEPS.map((s) => {
-                                    const Icon = s.icon;
-                                    return (
-                                      <div key={s.step} className="flex gap-3 items-start">
-                                        <div className="flex-shrink-0 h-7 w-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-[11px] font-bold shadow-sm shadow-emerald-500/20">
-                                          {s.step}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{s.title}</p>
-                                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">{s.desc}</p>
-                                        </div>
-                                        <Icon className="h-4 w-4 text-emerald-500 flex-shrink-0 mt-0.5" />
-                                      </div>
-                                    );
-                                  })}
+                            {/* OCR scanning status */}
+                            {renewalOcrScanning && (
+                              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-xs text-blue-700 dark:text-blue-300 animate-pulse">
+                                <Loader2 className="h-4 w-4 animate-spin text-blue-600 flex-shrink-0" />
+                                <span>Scanning receipt image with OCR to auto-extract Amount, Reference No, and Date...</span>
+                              </div>
+                            )}
+
+                            {/* OCR auto-detected badge */}
+                            {renewalOcrDetected && !renewalOcrScanning && (
+                              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-300">
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                                <div className="leading-relaxed">
+                                  <span className="font-bold">Auto-detected from receipt:</span> Total Amount: ₱{renewalAmount || "—"}, Ref No: {renewalRef || "—"}{renewalDate ? `, Date: ${renewalDate}` : ""}.
                                 </div>
-                                <div className="flex items-start gap-2 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 rounded-xl p-3">
-                                  <Info className="h-4 w-4 text-blue-500 flex-shrink-0 mt-0.5" />
-                                  <p className="text-[11px] text-blue-700 dark:text-blue-300 leading-relaxed">
-                                    Amount to send:{" "}
-                                    <strong className="font-bold">
-                                      {selectedPlan ? `₱${selectedPlan.monthly_fee.toLocaleString()}` : "select a plan above"}
-                                    </strong>. Send to our official GCash number. Verification takes up to 2 hours on business days.
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Step 3: Verify Details & Plan-Load Match */}
+                          <div className="space-y-3">
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white text-[10px] font-bold">3</span>
+                              Receipt Details &amp; Plan Verification
+                            </label>
+
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                                  GCash Reference No. <span className="text-rose-500">*</span>
+                                </label>
+                                <Input
+                                  placeholder="e.g. 2046 211 788420"
+                                  value={renewalRef}
+                                  onChange={(e) => setRenewalRef(e.target.value)}
+                                  className="h-10 rounded-xl font-mono text-sm"
+                                />
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                                  Total Amount Sent (₱) <span className="text-rose-500">*</span>
+                                </label>
+                                <Input
+                                  type="number"
+                                  placeholder={selectedPlan ? String(selectedPlan.monthly_fee) : "0"}
+                                  value={renewalAmount}
+                                  onChange={(e) => setRenewalAmount(e.target.value)}
+                                  className="h-10 rounded-xl font-bold text-sm"
+                                />
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                                  Transaction Date
+                                </label>
+                                <Input
+                                  placeholder="e.g. Oct 17, 2026"
+                                  value={renewalDate}
+                                  onChange={(e) => setRenewalDate(e.target.value)}
+                                  className="h-10 rounded-xl text-sm"
+                                />
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                                  Customer / Sender Name
+                                </label>
+                                <Input
+                                  placeholder="e.g. Juan Dela Cruz"
+                                  value={renewalName}
+                                  onChange={(e) => setRenewalName(e.target.value)}
+                                  className="h-10 rounded-xl text-sm"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Plan and Load Match Alert */}
+                            {selectedPlan && renewalAmount && Math.round(Number(renewalAmount)) !== Math.round(selectedPlan.monthly_fee) && (
+                              <div className="flex items-start gap-2 p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-xs text-rose-700 dark:text-rose-300">
+                                <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5 text-rose-600" />
+                                <div>
+                                  <span className="font-bold">Plan &amp; Load Amount Mismatch!</span>
+                                  <p className="mt-0.5">
+                                    Selected plan "{selectedPlan.plan_name}" is ₱{selectedPlan.monthly_fee.toLocaleString()}, but receipt shows ₱{Number(renewalAmount).toLocaleString()}. The plan and load amount must match before saving.
                                   </p>
                                 </div>
                               </div>
+                            )}
 
-                              {/* Submit Renewal */}
-                              <div className="flex gap-2 pt-1">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="rounded-xl"
-                                  onClick={() => setShowRenewal(false)}
-                                  disabled={renewalSubmitting}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button
-                                  className="flex-1 h-11 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium shadow-lg shadow-blue-500/15"
-                                  onClick={() => void handleRenewalSubmit()}
-                                  disabled={renewalSubmitting}
-                                >
-                                  {renewalSubmitting ? (
-                                    <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Submitting...</>
-                                  ) : (
-                                    <><Send className="h-4 w-4 mr-1.5" /> Submit Renewal Request</>
-                                  )}
-                                </Button>
+                            {selectedPlan && renewalAmount && Math.round(Number(renewalAmount)) === Math.round(selectedPlan.monthly_fee) && (
+                              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-xs text-emerald-800 dark:text-emerald-300">
+                                <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600" />
+                                <span className="font-semibold">
+                                  ✓ Plan and load amount matched: ₱{selectedPlan.monthly_fee.toLocaleString()}
+                                </span>
                               </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
+
+                          {/* Submit Renewal Buttons */}
+                          <div className="flex gap-2 pt-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="rounded-xl"
+                              onClick={() => setShowRenewal(false)}
+                              disabled={renewalSubmitting}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              className="flex-1 h-11 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium shadow-lg shadow-blue-500/15"
+                              onClick={() => void handleRenewalSubmit()}
+                              disabled={
+                                renewalSubmitting ||
+                                renewalOcrScanning ||
+                                !selectedPlan ||
+                                !renewalReceiptFile ||
+                                !renewalRef.trim() ||
+                                !renewalAmount ||
+                                Math.round(Number(renewalAmount)) !== Math.round(selectedPlan.monthly_fee)
+                              }
+                            >
+                              {renewalSubmitting ? (
+                                <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Renewing Subscription...</>
+                              ) : (
+                                <><Send className="h-4 w-4 mr-1.5" /> Submit Receipt &amp; Auto-Renew</>
+                              )}
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     )}
 
-                    {/* ============= REGULAR PAYMENT FORM (unpaid/overdue but not renewal) ============= */}
+                    {/* ============= REGULAR PAYMENT FORM (unpaid/overdue bill) ============= */}
                     {!showRenewal && currentBill && currentBill.status !== "paid" && (
                       <div className="border-t border-slate-100 dark:border-slate-900 pt-5 space-y-4">
                         <div className="bg-blue-500/5 dark:bg-blue-500/10 border border-blue-500/15 p-3.5 rounded-2xl flex gap-2 text-xs">
-                          <CreditCard className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                          <Receipt className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
                           <div>
-                            <span className="font-semibold text-blue-900 dark:text-blue-200 block">GCash / Maya / Card Portal Pay</span>
+                            <span className="font-semibold text-blue-900 dark:text-blue-200 block">Upload Payment Receipt</span>
                             <span className="text-blue-700/80 dark:text-blue-300/80 leading-normal block mt-1">
-                              {paymentMethod === "paymongo"
-                                ? "Pay instantly online using GCash, Maya, or Credit/Debit Card. No manual receipt submission required."
-                                : "Pay manually, then input the reference transaction code and amount paid below to submit verification."
-                              }
+                              Pay via GCash to <strong>0975 920 9976</strong>, upload your receipt image, and your account will automatically renew while awaiting admin review.
                             </span>
                           </div>
                         </div>
 
-                        <div className="grid gap-3 sm:grid-cols-2 text-xs">
-                          <div className={paymentMethod === "paymongo" ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"}>
-                            <label className="font-semibold text-slate-500">Method</label>
-                            <select
-                              value={paymentMethod}
-                              onChange={(e) => setPaymentMethod(e.target.value)}
-                              className="h-9 w-full rounded-lg border border-slate-200 dark:border-slate-800 dark:bg-slate-900 px-2.5 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                        {/* Regular receipt upload */}
+                        {!regularReceiptPreview ? (
+                          <label className="group flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/40 p-5 text-center cursor-pointer hover:border-blue-500 transition-all">
+                            <Upload className="h-6 w-6 text-blue-600 mb-1.5" />
+                            <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Upload receipt image (GCash / Maya)</p>
+                            <p className="text-[10px] text-slate-400">Total amount, Ref No, and Date are detected automatically</p>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="sr-only"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) void handleRegularReceiptUpload(f);
+                              }}
+                            />
+                          </label>
+                        ) : (
+                          <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-2">
+                            <img src={regularReceiptPreview} alt="Receipt preview" className="max-h-48 object-contain rounded-xl" />
+                            <button
+                              onClick={() => {
+                                setRegularReceiptFile(null);
+                                setRegularReceiptPreview(null);
+                              }}
+                              className="text-xs text-rose-400 hover:text-rose-300 font-bold mt-2 flex items-center gap-1"
                             >
-                              <option value="paymongo">Pay Online (GCash, Maya, Card) via PayMongo</option>
-                              <option value="gcash">GCash (Manual Upload)</option>
-                              <option value="maya">PayMaya (Manual Upload)</option>
-                              <option value="bank_transfer">Bank Transfer (Manual Upload)</option>
-                              <option value="cash">Cash (Manual Upload)</option>
-                            </select>
+                              <X className="h-3.5 w-3.5" /> Remove Receipt
+                            </button>
                           </div>
+                        )}
 
-                          {paymentMethod !== "paymongo" && (
-                            <>
-                              <div className="space-y-1.5">
-                                <label className="font-semibold text-slate-500">Reference Number</label>
-                                <Input
-                                  placeholder="Transaction Reference"
-                                  className="h-9 rounded-lg border-slate-200 dark:border-slate-850 focus-visible:ring-blue-500"
-                                  value={referenceNumber}
-                                  onChange={(e) => setReferenceNumber(e.target.value)}
-                                />
-                              </div>
-                              <div className="space-y-1.5 sm:col-span-2">
-                                <label className="font-semibold text-slate-500">Amount Paid (₱)</label>
-                                <Input
-                                  type="number"
-                                  placeholder={currentBill.amount_due.toString()}
-                                  className="h-9 rounded-lg border-slate-200 dark:border-slate-850 focus-visible:ring-blue-500"
-                                  value={amountPaid}
-                                  onChange={(e) => setAmountPaid(e.target.value)}
-                                />
-                              </div>
-                            </>
-                          )}
+                        {regularOcrScanning && (
+                          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-xs text-blue-700 animate-pulse">
+                            <Loader2 className="h-4 w-4 animate-spin" /> Scanning receipt with OCR...
+                          </div>
+                        )}
+
+                        <div className="grid gap-3 sm:grid-cols-2 text-xs">
+                          <div className="space-y-1.5">
+                            <label className="font-semibold text-slate-500">Reference Number</label>
+                            <Input
+                              placeholder="Transaction Reference"
+                              className="h-9 rounded-lg font-mono"
+                              value={referenceNumber}
+                              onChange={(e) => setReferenceNumber(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="font-semibold text-slate-500">Amount Paid (₱)</label>
+                            <Input
+                              type="number"
+                              placeholder={currentBill.amount_due.toString()}
+                              className="h-9 rounded-lg font-bold"
+                              value={amountPaid}
+                              onChange={(e) => setAmountPaid(e.target.value)}
+                            />
+                          </div>
                         </div>
 
-                        {paymentMethod === "paymongo" ? (
-                          <Button onClick={() => void handleSubmitPayment()} disabled={submitting} className="w-full h-11 rounded-xl shadow-md bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white">
-                            {submitting ? (
-                              <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Preparing Checkout...</>
-                            ) : (
-                              <><CreditCard className="h-4 w-4 mr-1.5" /> Pay Now via PayMongo <ExternalLink className="h-3.5 w-3.5 ml-1.5" /></>
-                            )}
-                          </Button>
-                        ) : (
-                          <Button onClick={() => void handleSubmitPayment()} disabled={submitting} className="w-full h-11 rounded-xl shadow-md">
-                            {submitting ? (
-                              <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Uploading Receipt...</>
-                            ) : (
-                              <><FileImage className="h-4 w-4 mr-1.5" /> Submit Payment Verification</>
-                            )}
-                          </Button>
-                        )}
+                        <Button
+                          onClick={() => void handleSubmitPayment()}
+                          disabled={submitting || regularOcrScanning || !regularReceiptFile || !referenceNumber.trim() || !amountPaid}
+                          className="w-full h-11 rounded-xl shadow-md bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+                        >
+                          {submitting ? (
+                            <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Submitting Receipt...</>
+                          ) : (
+                            <><Upload className="h-4 w-4 mr-1.5" /> Submit Receipt for Verification</>
+                          )}
+                        </Button>
                       </div>
                     )}
 

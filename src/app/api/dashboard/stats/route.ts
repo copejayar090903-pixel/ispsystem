@@ -31,13 +31,14 @@ export async function GET() {
       billsRes,
       paymentsRes,
     ] = await Promise.all([
-      supabase.from("customers").select("id, full_name, status, plan_id, created_at, plans(plan_name, speed)").throwOnError(),
+      supabase.from("customers").select("id, full_name, account_number, pppoe_username, due_date, contact_number, status, plan_id, created_at, plans(plan_name, speed)").throwOnError(),
       supabase.from("plans").select("id, plan_name, speed").throwOnError(),
       supabase.from("bills").select("id, status, amount_due, billing_year, billing_month").throwOnError(),
       supabase.from("payments").select("id, status, amount_paid, method, submitted_at, customers(full_name)").order("submitted_at", { ascending: false }).throwOnError(),
     ]);
 
-    const customers = customersRes.data || [];
+    const rawCustomers = customersRes.data || [];
+    const customers = rawCustomers.filter((c: any) => c.status !== "deleted" && !c.deleted_at);
     const plans = plansRes.data || [];
     const bills = billsRes.data || [];
     const payments = paymentsRes.data || [];
@@ -142,54 +143,44 @@ export async function GET() {
       planDistributionData.push({ name: "No Active Subscribers", customers: 0 });
     }
 
-    // 9. Recent Activity logs
-    const activityItems: any[] = [];
-    
-    // Add latest payments
-    const latestPayments = payments.slice(0, 3);
-    latestPayments.forEach((p: any) => {
-      const customerName = p.customers?.full_name || "Unknown Customer";
-      const timeAgo = getTimeAgo(p.submitted_at);
-      if (p.status === "verified") {
-        activityItems.push({
-          title: "Payment verified",
-          detail: `${customerName} paid ${formatCurrency(p.amount_paid)} via ${p.method.toUpperCase()}`,
-          time: timeAgo,
-          type: "payment",
-          timestamp: new Date(p.submitted_at).getTime(),
-        });
-      } else if (p.status === "pending") {
-        activityItems.push({
-          title: "Payment submitted",
-          detail: `${customerName} uploaded proof of payment (${formatCurrency(p.amount_paid)})`,
-          time: timeAgo,
-          type: "payment",
-          timestamp: new Date(p.submitted_at).getTime(),
-        });
-      }
-    });
+    // 9. Deadline Customers (due within 3 days)
+    const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+    const deadlineCustomers = customers
+      .filter((c: any) => {
+        if (!c.due_date || c.status === 'suspended' || c.status === 'disconnected') return false;
+        const dueDate = new Date(c.due_date);
+        return dueDate >= now && dueDate <= threeDaysFromNow;
+      })
+      .map((c: any) => {
+        const dueDate = new Date(c.due_date);
+        const daysLeft = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        return {
+          id: c.id,
+          full_name: c.full_name,
+          account_number: c.account_number || '-',
+          pppoe_username: c.pppoe_username || '-',
+          due_date: c.due_date,
+          contact_number: c.contact_number || null,
+          days_left: Math.max(0, daysLeft),
+        };
+      })
+      .sort((a: any, b: any) => a.days_left - b.days_left)
+      .slice(0, 20);
 
-    // Add latest custom registrations
-    const latestCustomers = customers.slice(0, 2);
-    latestCustomers.forEach((c: any) => {
-      activityItems.push({
-        title: "New customer",
-        detail: `${c.full_name} registered successfully.`,
-        time: getTimeAgo(c.created_at),
-        type: "customer",
-        timestamp: new Date(c.created_at).getTime(),
-      });
-    });
-
-    // Sort combined activities by timestamp desc
-    activityItems.sort((a, b) => b.timestamp - a.timestamp);
+    // 10. Dashboard Stats Aggregation
+    const totalCustomers = customers.length;
+    const disconnectedCustomers = customers.filter(
+      (c: any) => c.status === "disconnected" || c.status === "inactive" || c.status === "suspended",
+    ).length;
+    const overdueAccounts = bills.filter((b: any) => b.status === "overdue").length || customers.filter((c: any) => c.status === "overdue").length;
+    const pendingPayments = payments.filter((p: any) => p.status === "pending").length;
 
     const stats = {
-      totalCustomers: customers.length,
+      totalCustomers,
       activeCustomers,
-      disconnectedCustomers: customers.filter((c: any) => c.status === "disconnected").length,
-      overdueAccounts: customers.filter((c: any) => c.status === "overdue").length,
-      pendingPayments: payments.filter((p: any) => p.status === "pending").length,
+      disconnectedCustomers,
+      overdueAccounts,
+      pendingPayments,
       monthlyRevenue: currentMonthRevenue,
       onlinePppoe: onlineSessionsCount,
       offlinePppoe: offlineSessionsCount,
@@ -201,7 +192,7 @@ export async function GET() {
       paidUnpaidData,
       growthData,
       planDistributionData,
-      activityItems: activityItems.slice(0, 4),
+      deadlineCustomers,
     };
 
     await cache.set(cacheKey, responseBody, 60);
@@ -213,26 +204,6 @@ export async function GET() {
       { error: error instanceof Error ? error.message : "Failed to fetch dashboard stats." },
       { status: 500 },
     );
-  }
-}
-
-function getTimeAgo(dateStr: string) {
-  try {
-    const seconds = Math.floor((new Date().getTime() - new Date(dateStr).getTime()) / 1000);
-    let interval = seconds / 31536000;
-
-    if (interval > 1) return Math.floor(interval) + " years ago";
-    interval = seconds / 2592000;
-    if (interval > 1) return Math.floor(interval) + " months ago";
-    interval = seconds / 86400;
-    if (interval > 1) return Math.floor(interval) + " days ago";
-    interval = seconds / 3600;
-    if (interval > 1) return Math.floor(interval) + " hours ago";
-    interval = seconds / 60;
-    if (interval > 1) return Math.floor(interval) + " mins ago";
-    return "just now";
-  } catch {
-    return "recent";
   }
 }
 

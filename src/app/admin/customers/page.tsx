@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Archive, Download, Eye, MoreHorizontal, Plus, Wifi, WifiOff, X, Loader2, Unplug, CreditCard } from "lucide-react";
+import { Archive, Download, Eye, MoreHorizontal, Plus, Wifi, WifiOff, X, Loader2, Unplug, CreditCard, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -150,6 +150,7 @@ export default function CustomersPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
@@ -532,6 +533,34 @@ export default function CustomersPage() {
     }
   }
 
+  async function handleDeleteCustomer(customer: Customer) {
+    if (!customer.id) {
+      toast.error("Customer ID is missing.");
+      return;
+    }
+    const confirmed = window.confirm(
+      `Are you sure you want to delete customer "${customer.fullName}" (${customer.pppoeUsername})?\n\nThis will soft-delete their database record and disable their MikroTik connection.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(customer.id);
+    try {
+      const res = await fetch(`/api/customers?id=${customer.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete customer.");
+      toast.success(`Customer "${customer.fullName}" deleted successfully.`);
+      if (selectedCustomer?.id === customer.id) {
+        setIsMobileDetailOpen(false);
+        setSelectedCustomer(null);
+      }
+      await loadData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete customer.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   function handleEdit(customer: Customer) {
     setEditingCustomer(customer);
     form.reset({
@@ -673,11 +702,26 @@ export default function CustomersPage() {
               )}
               {row.original.paidThisMonth ? "✓ Paid" : "Paid"}
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 dark:border-rose-900/50 dark:hover:bg-rose-950/40"
+              disabled={deletingId === row.original.id}
+              onClick={() => void handleDeleteCustomer(row.original)}
+              title="Delete customer"
+            >
+              {deletingId === row.original.id ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5" />
+              )}
+              Delete
+            </Button>
           </div>
         ),
       },
     ],
-    [activeCustomers, plans, actionBusy],
+    [activeCustomers, plans, actionBusy, deletingId],
   );
 
   return (
@@ -840,6 +884,20 @@ export default function CustomersPage() {
                     onClick={() => void handlePayAction(selectedCustomer.pppoeUsername)}
                   >
                     <CreditCard className="mr-1.5 h-4 w-4" /> Paid
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-center col-span-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 dark:border-rose-900/50 dark:hover:bg-rose-950/40"
+                    disabled={deletingId === selectedCustomer.id}
+                    onClick={() => void handleDeleteCustomer(selectedCustomer)}
+                  >
+                    {deletingId === selectedCustomer.id ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-1.5 h-4 w-4" />
+                    )}
+                    Delete Customer (Soft Delete)
                   </Button>
                 </div>
               </div>

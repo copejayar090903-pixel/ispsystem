@@ -356,6 +356,8 @@ export interface PaymentSubmittedPayload {
   billingPeriod?: string | null;
   submittedAt: string;
   adminUrl?: string;
+  /** Public URL of the uploaded receipt image / PDF */
+  proofUrl?: string | null;
 }
 
 function buildPaymentSubmittedHtml(d: PaymentSubmittedPayload, approveUrl: string, rejectUrl: string): string {
@@ -432,6 +434,15 @@ function buildPaymentSubmittedHtml(d: PaymentSubmittedPayload, approveUrl: strin
       <div class="row"><span class="lbl">Submitted At</span><span class="val">${submitted}</span></div>
     </div>
 
+    ${d.proofUrl ? `
+    <p class="sec-title">&#128444; Receipt / Proof of Payment</p>
+    <div style="text-align:center;margin-bottom:24px">
+      <a href="${d.proofUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;border:2px solid #e2e8f0;border-radius:12px;overflow:hidden;max-width:100%">
+        <img src="${d.proofUrl}" alt="Payment Receipt" style="max-width:480px;width:100%;display:block;border-radius:10px" />
+      </a>
+      <p style="margin-top:8px;font-size:12px;color:#64748b"><a href="${d.proofUrl}" style="color:#2563eb">Open full image ↗</a></p>
+    </div>` : ""}
+
     <div class="actions">
       <a class="btn-approve" href="${approveUrl}">&#9989; Approve Payment</a>
       <a class="btn-reject" href="${rejectUrl}">&#10060; Reject Payment</a>
@@ -462,9 +473,9 @@ Amount        : ${formatPHP(d.amountPaid)}
 Method        : ${d.method}
 Reference #   : ${d.referenceNumber ?? "N/A"}
 Billing Period: ${d.billingPeriod ?? "N/A"}
-Submitted At  : ${submitted}
+Submitted At  : ${submitted}${d.proofUrl ? `\nReceipt Image : ${d.proofUrl}` : ""}
 
-Review this payment at: ${adminUrl}/admin/billing
+Review this payment at: ${adminUrl}/admin/payments
 
 This is an automated alert. Do not reply to this email.`;
 }

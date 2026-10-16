@@ -36,7 +36,32 @@ export async function GET() {
     ]);
 
     const customers = customersRes.data || [];
-    const bills = billsRes.data || [];
+    const rawBills = billsRes.data || [];
+
+    // Deduplicate bills per (customer_id, billing_year, billing_month)
+    // Ensures paid reports and revenue stats show strictly 1 bill per customer per month (no duplicates)
+    const seenCustMonth = new Map<string, any>();
+    for (const b of rawBills) {
+      const key = `${b.customer_id}__${b.billing_year}__${b.billing_month}`;
+      const existing = seenCustMonth.get(key);
+      if (!existing) {
+        seenCustMonth.set(key, b);
+      } else {
+        if (b.status === "paid" && existing.status !== "paid") {
+          seenCustMonth.set(key, b);
+        } else if (b.status === "paid" && existing.status === "paid") {
+          const bTime = b.paid_at ? new Date(b.paid_at).getTime() : new Date(b.created_at).getTime();
+          const exTime = existing.paid_at ? new Date(existing.paid_at).getTime() : new Date(existing.created_at).getTime();
+          if (bTime > exTime) seenCustMonth.set(key, b);
+        } else if (existing.status !== "paid") {
+          const bTime = new Date(b.created_at).getTime();
+          const exTime = new Date(existing.created_at).getTime();
+          if (bTime > exTime) seenCustMonth.set(key, b);
+        }
+      }
+    }
+    const bills = Array.from(seenCustMonth.values());
+
     const payments = paymentsRes.data || [];
     const plans = plansRes.data || [];
     const expenses = expensesRes.data || [];
@@ -265,9 +290,29 @@ export async function GET() {
       currentYear,
     };
 
+    // ─── Deduplicate paid bills: keep only 1 bill per (customer_id, billing_year, billing_month) ─
+    // If a customer somehow has multiple paid bills in the same month, keep the latest paid_at.
+    const paidBills = bills.filter((b: any) => b.status === "paid");
+    const paidBillsDeduped: any[] = [];
+    const seenMonthKey = new Map<string, number>(); // key -> index in paidBillsDeduped
+    for (const b of paidBills) {
+      const key = `${b.customer_id}__${b.billing_year}__${b.billing_month}`;
+      const bTime = b.paid_at ? new Date(b.paid_at).getTime() : new Date(b.created_at).getTime();
+      if (seenMonthKey.has(key)) {
+        const existingIdx = seenMonthKey.get(key)!;
+        const existing = paidBillsDeduped[existingIdx];
+        const existingTime = existing.paid_at ? new Date(existing.paid_at).getTime() : new Date(existing.created_at).getTime();
+        if (bTime > existingTime) {
+          paidBillsDeduped[existingIdx] = b; // replace with more-recent one
+        }
+      } else {
+        seenMonthKey.set(key, paidBillsDeduped.length);
+        paidBillsDeduped.push(b);
+      }
+    }
+
     // ─── All Paid Bills (detailed) — sorted by paid_at newest first ──────
-    const recentPaidBills = bills
-      .filter((b: any) => b.status === "paid")
+    const recentPaidBills = paidBillsDeduped
       .sort((a: any, b_: any) => {
         const aTime = a.paid_at ? new Date(a.paid_at).getTime() : new Date(a.created_at).getTime();
         const bTime = b_.paid_at ? new Date(b_.paid_at).getTime() : new Date(b_.created_at).getTime();
@@ -309,8 +354,7 @@ export async function GET() {
       }>;
     }> = {};
 
-    bills
-      .filter((b: any) => b.status === "paid")
+    paidBillsDeduped
       .sort((a: any, b_: any) => {
         const aTime = a.paid_at ? new Date(a.paid_at).getTime() : new Date(a.created_at).getTime();
         const bTime = b_.paid_at ? new Date(b_.paid_at).getTime() : new Date(b_.created_at).getTime();

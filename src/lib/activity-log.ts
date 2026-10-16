@@ -6,6 +6,7 @@ export type LogEventType =
   | "payment"
   | "customer_created"
   | "customer_updated"
+  | "customer_deleted"
   | "status_change"
   | "sync_complete"
   | "sync_error"

@@ -35,11 +35,11 @@ interface SidebarItem {
 
 const sidebarItems: SidebarItem[] = [
   { href: "/admin/dashboard",  label: "Dashboard",      icon: LayoutDashboard },
-  { href: "/admin/customers",  label: "Customers",      icon: Users, badge: "12 overdue" },
+  { href: "/admin/customers",  label: "Customers",      icon: Users },
   { href: "/admin/pppoe",      label: "PPPoE Accounts", icon: Wifi },
   { href: "/admin/plans",      label: "Plans",          icon: ReceiptText },
-  { href: "/admin/billing",    label: "Reminders & Details", icon: Bell, badge: "4 pending" },
-  { href: "/admin/payments",   label: "Payments",       icon: CreditCard, badge: "3 new" },
+  { href: "/admin/billing",    label: "Reminders & Details", icon: Bell },
+  { href: "/admin/payments",   label: "Payments",       icon: CreditCard },
   { href: "/admin/mikrotik",   label: "MikroTik",       icon: Router },
   { href: "/admin/topology",   label: "Topology Map",   icon: GitFork },
   { href: "/admin/test-connection", label: "Connection Test", icon: Network },
@@ -53,6 +53,17 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const router = useRouter();
   const [expanded, setExpanded] = useState<string[]>([]);
   const [activeCount, setActiveCount] = useState<number | null>(null);
+  const [notifications, setNotifications] = useState<{
+    overdueCustomers: number;
+    pendingReminders: number;
+    newPayments: number;
+    deadlineCount: number;
+  }>({
+    overdueCustomers: 0,
+    pendingReminders: 0,
+    newPayments: 0,
+    deadlineCount: 0,
+  });
 
   const handleSignOut = async () => {
     try {
@@ -80,7 +91,27 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         // ignore error
       }
     }
+    async function fetchNotifications() {
+      try {
+        const res = await fetch("/api/admin/notifications", { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          setNotifications(data);
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
     void fetchActiveCount();
+    void fetchNotifications();
+
+    const interval = setInterval(() => {
+      void fetchActiveCount();
+      void fetchNotifications();
+    }, 20000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const toggleExpand = (href: string) => {
@@ -118,12 +149,23 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           const Icon = item.icon;
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           const isExpanded = expanded.includes(item.href);
-          const isCustomers = item.href === "/admin/customers";
-          const displayBadge = isCustomers
-            ? activeCount !== null
-              ? `${activeCount} active`
-              : "..."
-            : item.badge;
+
+          let displayBadge: string | number | null = null;
+          let badgeColor = "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300";
+
+          if (item.href === "/admin/customers" && notifications.overdueCustomers > 0) {
+            displayBadge = `${notifications.overdueCustomers} overdue`;
+            badgeColor = "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300";
+          } else if (item.href === "/admin/billing" && notifications.pendingReminders > 0) {
+            displayBadge = `${notifications.pendingReminders} pending`;
+            badgeColor = "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300";
+          } else if (item.href === "/admin/payments" && notifications.newPayments > 0) {
+            displayBadge = `${notifications.newPayments} new`;
+            badgeColor = "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300";
+          } else if (item.href === "/admin/pppoe" && activeCount !== null) {
+            displayBadge = `${activeCount} online`;
+            badgeColor = "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300";
+          }
 
           return (
             <div key={item.href}>
@@ -146,9 +188,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     "rounded-full px-2 py-0.5 text-xs font-semibold",
                     active
                       ? "bg-white/20 text-white"
-                      : isCustomers
-                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
-                      : "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300"
+                      : badgeColor
                   )}>
                     {displayBadge}
                   </span>
