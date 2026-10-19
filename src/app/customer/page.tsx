@@ -129,6 +129,7 @@ export default function CustomerPortalPage() {
   const [amountPaid, setAmountPaid] = useState("");
   const [paymentDate, setPaymentDate] = useState("");
   const [payerName, setPayerName] = useState("");
+  const [showRenewal, setShowRenewal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Countdown timer
@@ -153,6 +154,30 @@ export default function CustomerPortalPage() {
     const id = setInterval(updateTimer, 1000);
     return () => clearInterval(id);
   }, [customerData?.due_date]);
+
+  // Listen for clipboard image paste (Ctrl+V) when renewal flow is open
+  useEffect(() => {
+    if (!showRenewal) return;
+
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          const file = items[i].getAsFile();
+          if (file) {
+            e.preventDefault();
+            void handleReceiptSelect(file);
+            toast.info("Pasted screenshot detected! Scanning receipt with OCR...");
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [showRenewal, customerData]);
 
   useEffect(() => {
     if (!customerData) return;
@@ -200,13 +225,14 @@ export default function CustomerPortalPage() {
       setPendingPayment(data.pendingPayment ?? null);
       setPaymentHistory(data.paymentHistory ?? []);
       setFound(true);
+      setShowRenewal(false);
       setSelectedPlan(null);
       setReceiptFile(null);
       setReceiptPreview(null);
       setReferenceNumber("");
       setAmountPaid("");
       setPaymentDate("");
-      setPayerName("");
+      setPayerName(data.customer?.full_name || "");
       toast.success("Account found successfully.");
     } catch (err: any) {
       toast.error(err.message || "Account lookup failed.");
@@ -246,16 +272,17 @@ export default function CustomerPortalPage() {
         if (data.date) {
           setPaymentDate(data.date);
         }
-        if (data.customerName) {
-          setPayerName(data.customerName);
+        // CRITICAL: Customer name is locked strictly based on account number:
+        if (customerData?.full_name) {
+          setPayerName(customerData.full_name);
         }
         setOcrDetected({
           amount: data.amount ? String(data.amount) : "",
           refNo: data.referenceNumber ?? "",
           date: data.date ?? "",
-          name: data.customerName ?? "",
+          name: customerData?.full_name || "",
         });
-        toast.success("Receipt scanned! Amount, Ref No, and Date auto-detected.");
+        toast.success("Receipt scanned! Amount & Ref No auto-detected.");
       } else {
         toast.info("Receipt attached! Please check or fill in the details below.");
       }
@@ -457,21 +484,48 @@ export default function CustomerPortalPage() {
                   </div>
                   {timeLeft?.isOverdue && (
                     <div className="text-center text-xs font-semibold text-rose-500 dark:text-rose-400 animate-pulse">
-                      ⚠️ Subscription Expired! Please upload your receipt to restore your connection.
+                      ⚠️ Subscription Expired! Please purchase load or renew to restore your connection.
+                    </div>
+                  )}
+
+                  {!showRenewal && (
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-col items-center gap-2">
+                      <Button
+                        onClick={() => {
+                          setShowRenewal(true);
+                          if (customerData?.full_name) setPayerName(customerData.full_name);
+                        }}
+                        className="w-full sm:w-auto px-8 h-12 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold text-sm shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        Purchase Load / Renew Subscription
+                      </Button>
+                      <p className="text-[11px] text-slate-400">Select a plan and submit your GCash / Maya payment receipt</p>
                     </div>
                   )}
                 </div>
 
                 {/* ─── PURCHASE & RENEWAL FLOW ──────────────────────── */}
-                <div className="border border-orange-200 dark:border-orange-500/30 rounded-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-3 duration-300">
-                  <div className="bg-gradient-to-r from-orange-500/10 to-rose-500/10 dark:from-orange-500/15 dark:to-rose-500/15 px-5 py-4 border-b border-orange-200 dark:border-orange-500/30">
-                    <p className="font-bold text-orange-900 dark:text-orange-200 flex items-center gap-2">
-                      <RefreshCw className="h-4 w-4" /> Purchase &amp; Renew Plan
-                    </p>
-                    <p className="text-xs text-orange-700/80 dark:text-orange-300/80 mt-1">
-                      Select your plan, then upload your GCash / Maya receipt. An admin will verify and activate your account.
-                    </p>
-                  </div>
+                {showRenewal && (
+                  <div className="border border-orange-200 dark:border-orange-500/30 rounded-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-3 duration-300">
+                    <div className="bg-gradient-to-r from-orange-500/10 to-rose-500/10 dark:from-orange-500/15 dark:to-rose-500/15 px-5 py-4 border-b border-orange-200 dark:border-orange-500/30 flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-orange-900 dark:text-orange-200 flex items-center gap-2">
+                          <RefreshCw className="h-4 w-4" /> Purchase &amp; Renew Plan
+                        </p>
+                        <p className="text-xs text-orange-700/80 dark:text-orange-300/80 mt-1">
+                          Select your plan, then upload your GCash / Maya receipt.
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowRenewal(false)}
+                        className="h-8 px-2 text-xs text-slate-500"
+                      >
+                        <X className="h-4 w-4 mr-1" /> Close
+                      </Button>
+                    </div>
 
                   <div className="p-5 space-y-6 bg-white/60 dark:bg-slate-950/60">
 
@@ -700,16 +754,18 @@ export default function CustomerPortalPage() {
                             />
                           </div>
 
-                          {/* Sender name */}
+                          {/* Customer name */}
                           <div className="flex flex-col gap-1.5 sm:col-span-2">
-                            <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                              Your Name (as shown on receipt)
+                            <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 flex items-center justify-between">
+                              <span>Customer Name (Account Holder)</span>
+                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">Verified Account</span>
                             </label>
                             <Input
-                              placeholder="e.g. Juan Dela Cruz"
-                              value={payerName}
-                              onChange={(e) => setPayerName(e.target.value)}
+                              readOnly
+                              value={customerData?.full_name || payerName}
+                              className="font-bold bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 cursor-not-allowed"
                             />
+                            <p className="text-[10px] text-slate-400">Fixed to Account #{customerData?.account_number}</p>
                           </div>
                         </div>
                       </div>
@@ -766,6 +822,7 @@ export default function CustomerPortalPage() {
                     )}
                   </div>
                 </div>
+              )}
 
                 {/* Paid bill indicator */}
                 {currentBill && currentBill.status === "paid" && (

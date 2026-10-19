@@ -20,6 +20,7 @@ import {
   ScrollText,
   GitFork,
   Bell,
+  RefreshCw,
 } from "lucide-react";
 import { useState, useEffect, type ReactNode } from "react";
 import { cn } from "@/src/lib/utils";
@@ -35,6 +36,7 @@ interface SidebarItem {
 
 const sidebarItems: SidebarItem[] = [
   { href: "/admin/dashboard",  label: "Dashboard",      icon: LayoutDashboard },
+  { href: "/admin/renewals",   label: "Renewal Submissions", icon: RefreshCw },
   { href: "/admin/customers",  label: "Customers",      icon: Users },
   { href: "/admin/pppoe",      label: "PPPoE Accounts", icon: Wifi },
   { href: "/admin/plans",      label: "Plans",          icon: ReceiptText },
@@ -153,7 +155,10 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           let displayBadge: string | number | null = null;
           let badgeColor = "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300";
 
-          if (item.href === "/admin/customers" && notifications.overdueCustomers > 0) {
+          if (item.href === "/admin/renewals" && notifications.newPayments > 0) {
+            displayBadge = `${notifications.newPayments} pending`;
+            badgeColor = "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300";
+          } else if (item.href === "/admin/customers" && notifications.overdueCustomers > 0) {
             displayBadge = `${notifications.overdueCustomers} overdue`;
             badgeColor = "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300";
           } else if (item.href === "/admin/billing" && notifications.pendingReminders > 0) {

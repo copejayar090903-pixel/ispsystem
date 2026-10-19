@@ -210,7 +210,7 @@ export async function POST(request: Request) {
         .update({
           status: "paid",
           paid_at: now.toISOString(),
-          due_date: newDueDateStr,
+          due_date: newDueDateStr.split("T")[0],
         })
         .eq("id", existingBill.id);
     } else {
@@ -225,7 +225,7 @@ export async function POST(request: Request) {
           billing_month: currentMonth,
           billing_period_start: periodStart,
           billing_period_end: periodEnd,
-          due_date: newDueDateStr,
+          due_date: newDueDateStr.split("T")[0],
           amount_due: planFee ?? amountPaid,
           status: "paid",
           paid_at: now.toISOString(),
@@ -245,7 +245,6 @@ export async function POST(request: Request) {
       .insert({
         customer_id:      customer.id,
         billing_id:       billingId,
-        plan_id:          effectivePlanId ?? null,
         method,
         reference_number: referenceNumber,
         amount_paid:      amountPaid,
@@ -256,13 +255,16 @@ export async function POST(request: Request) {
       .select("id")
       .single();
 
-    if (paymentError) throw paymentError;
+    if (paymentError) {
+      console.error("[portal/payment-submit] Payment insert error:", paymentError);
+      throw paymentError;
+    }
 
     // ─── Send owner email alert for Admin Review ───────────────────────────
     try {
       await sendPaymentSubmittedToOwner({
         paymentId:       payment.id,
-        customerName:    customerNameInput || customer.full_name,
+        customerName:    customer.full_name,
         accountNumber,
         pppoeUsername:   customer.pppoe_username,
         amountPaid,

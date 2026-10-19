@@ -194,6 +194,30 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [customerData?.due_date]);
 
+  // Listen for clipboard image paste (Ctrl+V) when renewal flow is open
+  useEffect(() => {
+    if (!showRenewal) return;
+
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          const file = items[i].getAsFile();
+          if (file) {
+            e.preventDefault();
+            void handleRenewalReceiptUpload(file);
+            toast.info("Pasted screenshot detected! Scanning receipt with OCR...");
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [showRenewal, customerData]);
+
   // FAQ
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
 
@@ -276,9 +300,13 @@ export default function Home() {
         if (data.amount) setRenewalAmount(String(data.amount));
         if (data.referenceNumber) setRenewalRef(data.referenceNumber);
         if (data.date) setRenewalDate(data.date);
-        if (data.customerName) setRenewalName(data.customerName);
+        // CRITICAL: Customer name is locked strictly to account number holder.
+        // NEVER overwrite with OCR extracted receipt/sender name!
+        if (customerData?.full_name) {
+          setRenewalName(customerData.full_name);
+        }
         setRenewalOcrDetected(data);
-        toast.success("Receipt scanned! Amount, Ref No, and Date auto-detected.");
+        toast.success("Receipt scanned! Amount and Ref No auto-detected.");
       } else {
         toast.info("Receipt attached! Please check or fill in the Ref No and amount.");
       }
@@ -671,13 +699,15 @@ export default function Home() {
                       )}
 
                       {!showRenewal && (
-                        <div className="text-center w-full pt-4 border-t border-slate-100 dark:border-slate-900">
-                          <button
+                        <div className="pt-5 border-t border-slate-100 dark:border-slate-800 flex flex-col items-center gap-2">
+                          <Button
                             onClick={handleShowRenewal}
-                            className="text-[#00cbab] hover:text-[#00b598] font-black text-sm uppercase tracking-wider hover:underline underline-offset-4 transition-colors"
+                            className="w-full sm:w-auto px-8 h-12 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold text-sm shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
                           >
-                            Purchase Load
-                          </button>
+                            <RefreshCw className="h-4 w-4" />
+                            Purchase Load / Renew Subscription
+                          </Button>
+                          <p className="text-[11px] text-slate-400">Click to choose your plan and submit your GCash / Maya renewal receipt</p>
                         </div>
                       )}
                     </div>
@@ -777,10 +807,10 @@ export default function Home() {
                                   <Upload className="h-6 w-6" />
                                 </div>
                                 <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                                  Tap or drop your GCash receipt image here
+                                  Tap to upload or paste (Ctrl+V) receipt image
                                 </p>
                                 <p className="text-[10px] text-slate-400 mt-1">
-                                  JPG, PNG, or WebP up to 10 MB. System will automatically extract Amount, Ref No, and Date.
+                                  Drag &amp; drop, browse, or paste screenshot from clipboard. OCR will auto-detect Ref No and Amount.
                                 </p>
                                 <input
                                   type="file"
@@ -882,15 +912,16 @@ export default function Home() {
                               </div>
 
                               <div className="space-y-1.5">
-                                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                                  Customer / Sender Name
+                                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+                                  <span>Customer Name (Account Holder)</span>
+                                  <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold">Verified Account</span>
                                 </label>
                                 <Input
-                                  placeholder="e.g. Juan Dela Cruz"
-                                  value={renewalName}
-                                  onChange={(e) => setRenewalName(e.target.value)}
-                                  className="h-10 rounded-xl text-sm"
+                                  readOnly
+                                  value={customerData?.full_name || renewalName}
+                                  className="h-10 rounded-xl text-sm font-bold bg-slate-100 dark:bg-slate-800/80 text-slate-900 dark:text-slate-100 cursor-not-allowed border-slate-200 dark:border-slate-800"
                                 />
+                                <p className="text-[10px] text-slate-400">Fixed to Account #{customerData?.account_number}</p>
                               </div>
                             </div>
 
@@ -952,92 +983,7 @@ export default function Home() {
                       </div>
                     )}
 
-                    {/* ============= REGULAR PAYMENT FORM (unpaid/overdue bill) ============= */}
-                    {!showRenewal && currentBill && currentBill.status !== "paid" && (
-                      <div className="border-t border-slate-100 dark:border-slate-900 pt-5 space-y-4">
-                        <div className="bg-blue-500/5 dark:bg-blue-500/10 border border-blue-500/15 p-3.5 rounded-2xl flex gap-2 text-xs">
-                          <Receipt className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
-                          <div>
-                            <span className="font-semibold text-blue-900 dark:text-blue-200 block">Upload Payment Receipt</span>
-                            <span className="text-blue-700/80 dark:text-blue-300/80 leading-normal block mt-1">
-                              Pay via GCash to <strong>0975 920 9976</strong>, upload your receipt image, and your account will automatically renew while awaiting admin review.
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Regular receipt upload */}
-                        {!regularReceiptPreview ? (
-                          <label className="group flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/40 p-5 text-center cursor-pointer hover:border-blue-500 transition-all">
-                            <Upload className="h-6 w-6 text-blue-600 mb-1.5" />
-                            <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Upload receipt image (GCash / Maya)</p>
-                            <p className="text-[10px] text-slate-400">Total amount, Ref No, and Date are detected automatically</p>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="sr-only"
-                              onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) void handleRegularReceiptUpload(f);
-                              }}
-                            />
-                          </label>
-                        ) : (
-                          <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-950 flex flex-col items-center justify-center p-2">
-                            <img src={regularReceiptPreview} alt="Receipt preview" className="max-h-48 object-contain rounded-xl" />
-                            <button
-                              onClick={() => {
-                                setRegularReceiptFile(null);
-                                setRegularReceiptPreview(null);
-                              }}
-                              className="text-xs text-rose-400 hover:text-rose-300 font-bold mt-2 flex items-center gap-1"
-                            >
-                              <X className="h-3.5 w-3.5" /> Remove Receipt
-                            </button>
-                          </div>
-                        )}
-
-                        {regularOcrScanning && (
-                          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-xs text-blue-700 animate-pulse">
-                            <Loader2 className="h-4 w-4 animate-spin" /> Scanning receipt with OCR...
-                          </div>
-                        )}
-
-                        <div className="grid gap-3 sm:grid-cols-2 text-xs">
-                          <div className="space-y-1.5">
-                            <label className="font-semibold text-slate-500">Reference Number</label>
-                            <Input
-                              placeholder="Transaction Reference"
-                              className="h-9 rounded-lg font-mono"
-                              value={referenceNumber}
-                              onChange={(e) => setReferenceNumber(e.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="font-semibold text-slate-500">Amount Paid (₱)</label>
-                            <Input
-                              type="number"
-                              placeholder={currentBill.amount_due.toString()}
-                              className="h-9 rounded-lg font-bold"
-                              value={amountPaid}
-                              onChange={(e) => setAmountPaid(e.target.value)}
-                            />
-                          </div>
-                        </div>
-
-                        <Button
-                          onClick={() => void handleSubmitPayment()}
-                          disabled={submitting || regularOcrScanning || !regularReceiptFile || !referenceNumber.trim() || !amountPaid}
-                          className="w-full h-11 rounded-xl shadow-md bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
-                        >
-                          {submitting ? (
-                            <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Submitting Receipt...</>
-                          ) : (
-                            <><Upload className="h-4 w-4 mr-1.5" /> Submit Receipt for Verification</>
-                          )}
-                        </Button>
-                      </div>
-                    )}
-
+                    {/* Unpaid / renewal notice if bill exists */}
                     {currentBill && currentBill.status === "paid" && (
                       <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-400 p-4 rounded-2xl text-xs font-semibold text-center animate-in zoom-in-95 duration-300">
                         ✅ This bill has been paid and verified. Thank you!
