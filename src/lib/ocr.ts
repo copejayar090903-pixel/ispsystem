@@ -1,4 +1,5 @@
-// Client & Server safe receipt parser & OCR runner for GCash, Maya, and Bank receipts
+// Client-side receipt parser & OCR runner for GCash, Maya, and Bank receipts
+// Designed to work reliably on Vercel — all OCR runs in the user's browser via WebAssembly
 
 export type ParsedReceipt = {
   success: boolean;
@@ -27,7 +28,7 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
     if (amountMatch) {
       amount = parseFloat(amountMatch[1].replace(/,/g, ""));
     } else {
-      const genericAmountMatch = rawText.match(/[£P₱p]\s*([\d,]+(?:\.\d{1,2})?)/);
+      const genericAmountMatch = rawText.match(/[£P₱p]\s*([\d,]+(?:\.\d{1,2})?)/)
       if (genericAmountMatch) {
         amount = parseFloat(genericAmountMatch[1].replace(/,/g, ""));
       }
@@ -77,15 +78,22 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
 }
 
 /**
- * High-performance browser client OCR with strict timeout.
- * Runs entirely in the user's browser via WebAssembly — no server needed, works on Vercel!
+ * Browser-only client OCR using tesseract.js v7 with explicit CDN paths.
  *
- * Uses explicit CDN paths so Tesseract.js v7 loads correctly in production
- * without needing node_modules on the server.
+ * Why explicit CDN paths?
+ * ─────────────────────
+ * On Vercel (and other static-hosting / edge platforms), the Next.js bundler
+ * does NOT include tesseract.js's WASM core or trained-data files in the
+ * client bundle. By default tesseract.js tries to resolve paths relative to
+ * the page origin, which fails on Vercel because those files don't exist
+ * in the deployment.
+ *
+ * By pointing workerPath, corePath, and langPath to jsDelivr CDN, the browser
+ * downloads the WASM engine and language data directly — works everywhere.
  */
 export async function scanReceiptClient(
   file: File,
-  timeoutMs = 30000
+  timeoutMs = 15000
 ): Promise<ParsedReceipt> {
   let worker: any = null;
 
@@ -93,29 +101,55 @@ export async function scanReceiptClient(
     // Dynamic import to avoid SSR issues
     const { createWorker } = await import("tesseract.js");
 
-    // Explicit CDN paths ensure this works on Vercel where node_modules
-    // aren't available at runtime and cold-start CDN downloads are needed.
+    console.log("[OCR] Creating tesseract.js worker with CDN paths...");
+
     worker = await createWorker("eng", 1, {
-      workerPath: "https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/worker.min.js",
+      workerPath: "https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/worker.min.js",
+      corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@7.0.0",
       langPath: "https://tessdata.projectnaptha.com/4.0.0",
-      corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@4/tesseract-core-simd-lstm.wasm.js",
-      cacheMethod: "none",
+      gzip: true,
     });
 
+    console.log("[OCR] Worker created, starting recognition...");
     const ret = await worker.recognize(file);
-    const parsed = parseReceiptText(ret.data?.text || "");
+    const rawText = ret.data?.text || "";
+    console.log("[OCR] Recognition complete, text length:", rawText.length);
+
+    if (!rawText.trim()) {
+      return {
+        success: false,
+        amount: null,
+        referenceNumber: null,
+        date: null,
+        customerName: null,
+        rawText: "",
+        error: "OCR returned empty text. The image may be too blurry or not a receipt.",
+      };
+    }
+
+    const parsed = parseReceiptText(rawText);
     return parsed;
   };
 
   const timeoutPromise = new Promise<ParsedReceipt>((_, reject) => {
     setTimeout(() => {
-      reject(new Error("OCR scan timed out."));
+      reject(new Error("OCR scan timed out after " + (timeoutMs / 1000) + "s. Please fill in details manually."));
     }, timeoutMs);
   });
 
   try {
     const result = await Promise.race([runOcr(), timeoutPromise]);
     return result;
+  } catch (err: any) {
+    console.error("[OCR] Client error:", err?.message || err);
+    return {
+      success: false,
+      amount: null,
+      referenceNumber: null,
+      date: null,
+      customerName: null,
+      error: err?.message || "OCR failed. Please fill in details manually.",
+    };
   } finally {
     if (worker) {
       try {
@@ -128,36 +162,36 @@ export async function scanReceiptClient(
 }
 
 /**
- * Client-side only scan function (Vercel-safe):
- * Runs Tesseract.js WASM entirely in the user's browser.
- * Never contacts the server — no Lambda timeouts, no node_modules dependency.
+ * Universal scan function — browser-only OCR.
+ *
+ * On Vercel, server-side Tesseract.js does NOT work (WASM binaries aren't
+ * bundled into serverless functions, and the 10s timeout is too tight).
+ * So this function uses ONLY client-side browser OCR.
+ *
  * Never throws; always returns a safe ParsedReceipt so the UI NEVER hangs.
  */
 export async function scanReceiptSafe(file: File): Promise<ParsedReceipt> {
-  // Only run in browser — SSR guard
-  if (typeof window === "undefined") {
-    return {
-      success: false,
-      amount: null,
-      referenceNumber: null,
-      date: null,
-      customerName: null,
-      error: "OCR is only available in the browser.",
-    };
+  if (typeof window !== "undefined") {
+    try {
+      const clientResult = await scanReceiptClient(file, 15000);
+      if (clientResult.success) {
+        return clientResult;
+      }
+      // If OCR ran but didn't extract fields, still return the result
+      // so the user sees a helpful message
+      return clientResult;
+    } catch (clientErr: any) {
+      console.warn("[OCR Safe] Client OCR failed:", clientErr?.message || clientErr);
+    }
   }
 
-  try {
-    const result = await scanReceiptClient(file, 30000);
-    return result;
-  } catch (err) {
-    console.warn("[OCR]:", err);
-    return {
-      success: false,
-      amount: null,
-      referenceNumber: null,
-      date: null,
-      customerName: null,
-      error: "Could not auto-read receipt. Please fill in details manually.",
-    };
-  }
+  // Final safe fallback
+  return {
+    success: false,
+    amount: null,
+    referenceNumber: null,
+    date: null,
+    customerName: null,
+    error: "Could not auto-read receipt. Please fill in details manually.",
+  };
 }

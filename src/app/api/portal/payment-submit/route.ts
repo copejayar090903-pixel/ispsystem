@@ -10,6 +10,22 @@ const MAX_BYTES = 10 * 1024 * 1024;
 
 export async function POST(request: Request) {
   try {
+    const url = new URL(request.url);
+    const action = url.searchParams.get("action");
+
+    // ─── OCR stub — all OCR now runs client-side in the browser ────────────
+    // Tesseract.js WASM cannot run in Vercel Serverless Functions.
+    if (action === "ocr") {
+      return NextResponse.json({
+        success: false,
+        amount: null,
+        referenceNumber: null,
+        date: null,
+        customerName: null,
+        error: "Server-side OCR is not available. OCR runs in your browser instead.",
+      });
+    }
+
     const contentType = request.headers.get("content-type") ?? "";
 
     let accountNumber: string;
