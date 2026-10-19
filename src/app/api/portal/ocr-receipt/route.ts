@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createWorker } from "tesseract.js";
 import path from "path";
+import os from "os";
+import fs from "fs";
+import { parseReceiptText } from "@/src/lib/ocr";
 
 export const runtime = "nodejs";
 
@@ -24,78 +27,34 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const workerPath = path.resolve(process.cwd(), "node_modules/tesseract.js/src/worker-script/node/index.js");
-    worker = await createWorker("eng", 1, { workerPath, cachePath: process.cwd(), gzip: false });
-    const ret = await worker.recognize(buffer);
-    const rawText = ret.data?.text || "";
-
-    // ─── 1. Extract Amount ──────────────────────────────────────────────────
-    let amount: number | null = null;
-    const totalAmountMatch = rawText.match(
-      /(?:Total\s*Amount\s*(?:Sent)?|Amount\s*Sent)\s*[:=]?\s*[£P₱p]?\s*([\d,]+(?:\.\d{1,2})?)/i
-    );
-    if (totalAmountMatch) {
-      amount = parseFloat(totalAmountMatch[1].replace(/,/g, ""));
-    } else {
-      const amountMatch = rawText.match(/Amount\s*[:=]?\s*[£P₱p]?\s*([\d,]+(?:\.\d{1,2})?)/i);
-      if (amountMatch) {
-        amount = parseFloat(amountMatch[1].replace(/,/g, ""));
-      } else {
-        // Fallback: any standalone currency amount like ₱700 or £700.00
-        const genericAmountMatch = rawText.match(/[£P₱p]\s*([\d,]+(?:\.\d{1,2})?)/);
-        if (genericAmountMatch) {
-          amount = parseFloat(genericAmountMatch[1].replace(/,/g, ""));
-        }
-      }
+    const localWorker = path.resolve(process.cwd(), "node_modules/tesseract.js/src/worker-script/node/index.js");
+    const workerOptions: any = { cachePath: os.tmpdir(), gzip: false };
+    if (fs.existsSync(localWorker)) {
+      workerOptions.workerPath = localWorker;
     }
 
-    // ─── 2. Extract Reference Number ────────────────────────────────────────
-    let referenceNumber: string | null = null;
-    const refMatch = rawText.match(/Ref(?:\s*No|\s*Number|\.|\#)?\.?:?\s*([0-9\s]{8,25})/i);
-    if (refMatch) {
-      referenceNumber = refMatch[1].trim();
-    }
-
-    // ─── 3. Extract Date ────────────────────────────────────────────────────
-    let dateStr: string | null = null;
-    const dateMatch = rawText.match(
-      /([A-Za-z]{3,9}\s+\d{1,2},?\s*\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?)?)/i
-    );
-    if (dateMatch) {
-      dateStr = dateMatch[1].trim();
-    } else {
-      // Fallback: MM/DD/YYYY or DD/MM/YYYY
-      const slashDate = rawText.match(/\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}(?:\s+\d{1,2}:\d{2}\s*(?:AM|PM)?)?)\b/);
-      if (slashDate) {
-        dateStr = slashDate[1].trim();
-      }
-    }
-
-    // ─── 4. Extract Name / Recipient / Sender ───────────────────────────────
-    let customerName: string | null = null;
-    const lines = rawText.split("\n").map((l: string) => l.trim()).filter(Boolean);
-    const expressSendIdx = lines.findIndex((l: string) => /Express Send|Sent to|To\b/i.test(l));
-    if (expressSendIdx !== -1 && lines[expressSendIdx + 1]) {
-      const candidate = lines[expressSendIdx + 1].replace(/[e\*\.]{3,}/g, "•••").trim();
-      if (candidate.length >= 2 && !/^\+?\d+$/.test(candidate)) {
-        customerName = candidate;
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      amount,
-      referenceNumber,
-      date: dateStr,
-      customerName,
-      rawText,
+    const timeoutPromise = new Promise<{ data?: { text: string } }>((_, reject) => {
+      setTimeout(() => reject(new Error("OCR timeout")), 6500);
     });
-  } catch (error) {
-    console.error("[ocr-receipt] Error recognizing image:", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to scan receipt image." },
-      { status: 500 }
-    );
+
+    worker = await createWorker("eng", 1, workerOptions);
+    const ret: any = await Promise.race([
+      worker.recognize(buffer),
+      timeoutPromise,
+    ]);
+
+    const parsed = parseReceiptText(ret?.data?.text || "");
+    return NextResponse.json(parsed);
+  } catch (error: any) {
+    console.warn("[ocr-receipt] Error:", error?.message);
+    return NextResponse.json({
+      success: false,
+      amount: null,
+      referenceNumber: null,
+      date: null,
+      customerName: null,
+      error: "Could not auto-read receipt. Please fill in details manually.",
+    });
   } finally {
     if (worker) {
       try {

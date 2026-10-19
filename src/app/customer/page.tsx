@@ -28,6 +28,7 @@ import { Button } from "@/src/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/src/components/ui/card";
 import { Input } from "@/src/components/ui/input";
 import { formatCurrency } from "@/src/lib/utils";
+import { scanReceiptSafe } from "@/src/lib/ocr";
 
 type CustomerPlan = {
   id: string;
@@ -227,17 +228,15 @@ export default function CustomerPortalPage() {
     reader.onload = (e) => setReceiptPreview(e.target?.result as string);
     reader.readAsDataURL(file);
 
-    // Auto-scan receipt using OCR
+    // Auto-scan receipt using OCR with hard safety timeout
     setOcrScanning(true);
+    const safetyTimer = setTimeout(() => {
+      setOcrScanning(false);
+    }, 8500);
+
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/portal/payment-submit?action=ocr", {
-        method: "POST",
-        body: fd,
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const data = await scanReceiptSafe(file);
+      if (data && data.success) {
         if (data.amount) {
           setAmountPaid(String(data.amount));
         }
@@ -257,10 +256,14 @@ export default function CustomerPortalPage() {
           name: data.customerName ?? "",
         });
         toast.success("Receipt scanned! Amount, Ref No, and Date auto-detected.");
+      } else {
+        toast.info("Receipt attached! Please check or fill in the details below.");
       }
     } catch (err) {
       console.warn("[OCR Error]:", err);
+      toast.info("Receipt attached! Please check or fill in the details below.");
     } finally {
+      clearTimeout(safetyTimer);
       setOcrScanning(false);
     }
   };

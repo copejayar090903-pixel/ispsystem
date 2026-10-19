@@ -40,6 +40,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/src
 import { Input } from "@/src/components/ui/input";
 import { Badge } from "@/src/components/ui/badge";
 import { formatCurrency } from "@/src/lib/utils";
+import { scanReceiptSafe, type ParsedReceipt } from "@/src/lib/ocr";
 
 type CustomerPlan = {
   id: string;
@@ -150,7 +151,7 @@ export default function Home() {
   const [renewalReceiptFile, setRenewalReceiptFile] = useState<File | null>(null);
   const [renewalReceiptPreview, setRenewalReceiptPreview] = useState<string | null>(null);
   const [renewalOcrScanning, setRenewalOcrScanning] = useState(false);
-  const [renewalOcrDetected, setRenewalOcrDetected] = useState<{ amount?: number; refNo?: string; date?: string; customerName?: string } | null>(null);
+  const [renewalOcrDetected, setRenewalOcrDetected] = useState<ParsedReceipt | null>(null);
   const [renewalSubmitting, setRenewalSubmitting] = useState(false);
 
   const [timeLeft, setTimeLeft] = useState<{
@@ -264,22 +265,28 @@ export default function Home() {
     reader.readAsDataURL(file);
 
     setRenewalOcrScanning(true);
+    // Hard safety timeout: guarantee the loading spinner NEVER spins forever
+    const safetyTimer = setTimeout(() => {
+      setRenewalOcrScanning(false);
+    }, 8500);
+
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/portal/payment-submit?action=ocr", { method: "POST", body: fd });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const data = await scanReceiptSafe(file);
+      if (data && data.success) {
         if (data.amount) setRenewalAmount(String(data.amount));
         if (data.referenceNumber) setRenewalRef(data.referenceNumber);
         if (data.date) setRenewalDate(data.date);
         if (data.customerName) setRenewalName(data.customerName);
         setRenewalOcrDetected(data);
         toast.success("Receipt scanned! Amount, Ref No, and Date auto-detected.");
+      } else {
+        toast.info("Receipt attached! Please check or fill in the Ref No and amount.");
       }
     } catch (err) {
       console.warn("OCR notice:", err);
+      toast.info("Receipt attached! Please check or fill in the Ref No and amount.");
     } finally {
+      clearTimeout(safetyTimer);
       setRenewalOcrScanning(false);
     }
   };
@@ -295,20 +302,24 @@ export default function Home() {
     reader.readAsDataURL(file);
 
     setRegularOcrScanning(true);
+    const safetyTimer = setTimeout(() => {
+      setRegularOcrScanning(false);
+    }, 8500);
+
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/portal/payment-submit?action=ocr", { method: "POST", body: fd });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const data = await scanReceiptSafe(file);
+      if (data && data.success) {
         if (data.amount) setAmountPaid(String(data.amount));
         if (data.referenceNumber) setReferenceNumber(data.referenceNumber);
         if (data.date) setRegularDate(data.date);
         toast.success("Receipt scanned! Fields auto-detected.");
+      } else {
+        toast.info("Receipt attached! Please check or enter the reference number.");
       }
     } catch (err) {
       console.warn("OCR notice:", err);
     } finally {
+      clearTimeout(safetyTimer);
       setRegularOcrScanning(false);
     }
   };
