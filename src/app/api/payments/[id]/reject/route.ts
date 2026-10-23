@@ -15,9 +15,12 @@ export async function POST(
     const supabase = createSupabaseServerClient();
 
     // Query payment and customer details before updating
-    const paymentResponse = await supabase
+    const { data: payment, error: fetchError } = await supabase
       .from("payments")
       .select(`
+        id,
+        customer_id,
+        billing_id,
         amount_paid,
         method,
         reference_number,
@@ -30,9 +33,7 @@ export async function POST(
       .eq("id", id)
       .single();
 
-    const payment = paymentResponse.data as any;
-
-    if (!payment) {
+    if (fetchError || !payment) {
       return NextResponse.json({ error: "Payment not found." }, { status: 404 });
     }
 
@@ -42,7 +43,6 @@ export async function POST(
         status: "rejected",
         reviewed_by: adminId,
         reviewed_at: new Date().toISOString(),
-        rejection_reason: reason,
       })
       .eq("id", id);
 

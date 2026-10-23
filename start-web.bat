@@ -1,4 +1,4 @@
-@echo off
+ @echo off
 :: ISP System - Start Next.js web app (production)
 :: Requires: npm run build to be done first
 

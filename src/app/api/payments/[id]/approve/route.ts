@@ -21,12 +21,12 @@ export async function POST(
     const supabase = createSupabaseServerClient();
 
     // Fetch full payment, customer, and billing info for the receipt
-    const paymentResponse = await supabase
+    const { data: payment, error: fetchError } = await supabase
       .from("payments")
       .select(`
+        id,
         customer_id,
         billing_id,
-        plan_id,
         amount_paid,
         method,
         reference_number,
@@ -34,7 +34,8 @@ export async function POST(
           full_name,
           account_number,
           email,
-          pppoe_username
+          pppoe_username,
+          plan_id
         ),
         bills (
           billing_period_start,
@@ -44,12 +45,11 @@ export async function POST(
       .eq("id", paymentId)
       .single();
 
-    const payment = paymentResponse.data as any;
-
-    if (!payment) {
+    if (fetchError || !payment) {
       return NextResponse.json({ error: "Payment not found." }, { status: 404 });
     }
 
+    // Update payment record to verified
     const { error: paymentError } = await supabase
       .from("payments")
       .update({
@@ -61,6 +61,7 @@ export async function POST(
 
     if (paymentError) throw paymentError;
 
+    // Update billing record to paid (marks it in reports)
     if (payment.billing_id) {
       const { error: billError } = await supabase
         .from("bills")
@@ -76,7 +77,7 @@ export async function POST(
     // Immediately restore customer status & MikroTik profile upon approval
     // Pass plan_id so the PPPoE profile is updated to the plan the customer paid for
     const { restoreCustomer } = await import("@/src/lib/customer-service");
-    await restoreCustomer(payment.customer_id, payment.plan_id ?? undefined);
+    await restoreCustomer(payment.customer_id, payment.customers?.plan_id ?? undefined);
 
     // Send payment confirmation email to the customer (non-blocking)
     if (payment.customers?.email) {
@@ -101,17 +102,14 @@ export async function POST(
       }
     }
 
-    // NOTE: MikroTik profile restoration, PPPoE re-enable, customer status → "active",
-    // and due_date update are intentionally NOT done here. The /api/cron/paid-restore
-    // cron (runs hourly) detects the newly paid bill and handles all of that atomically,
-    // preventing duplicate side-effects across the cash-pay, approve, and PayMongo paths.
-
-    return NextResponse.json({ ok: true, message: "Payment approved and bill marked paid. Customer will be restored by the next cron run (within 1 hour)." });
+    return NextResponse.json({
+      ok: true,
+      message: "Payment approved and confirmed. Customer restored with active connection and renewed due date."
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to approve payment." },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
-
